@@ -504,7 +504,7 @@ The Jira Automation API does not support deleting rules. Cleanup is done by disa
 |-----------|---------|-----------------|
 | Create from export | `jtk auto export <uuid> > /tmp/rule.json && jtk auto create --file /tmp/rule.json` | New rule created, shows new UUID |
 
-> **Note:** When creating a rule from an export, the exported JSON contains the source rule's UUID. The API may reject duplicate UUIDs. If creation fails, strip the `"id"` field from the exported JSON before creating: `jq 'del(.id)' /tmp/rule.json > /tmp/rule-clean.json`.
+> **Note:** When creating a rule from an export, the exported JSON contains the source rule's UUID (field name: `uuid` inside `rule`). The API rejects duplicate UUIDs. Strip it before creating: `jq 'del(.rule.uuid)' /tmp/rule.json > /tmp/rule-clean.json`.
 | Verify created | `jtk auto get <new-uuid>` | Rule exists with same components as source |
 | Create with modified name | Edit JSON to change name, then create | Rule created with new name |
 | Missing --file | `jtk auto create` | Error: required flag "file" not set |
