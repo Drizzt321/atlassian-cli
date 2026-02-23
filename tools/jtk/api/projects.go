@@ -1,6 +1,7 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -55,23 +56,23 @@ type ProjectType struct {
 }
 
 // ListProjects returns all projects
-func (c *Client) ListProjects() ([]Project, error) {
+func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
 	urlStr := fmt.Sprintf("%s/project", c.BaseURL)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing projects: %w", err)
 	}
 
 	var projects []Project
 	if err := json.Unmarshal(body, &projects); err != nil {
-		return nil, fmt.Errorf("failed to parse projects: %w", err)
+		return nil, fmt.Errorf("parsing projects: %w", err)
 	}
 
 	return projects, nil
 }
 
 // SearchProjects searches for projects with pagination
-func (c *Client) SearchProjects(query string, startAt, maxResults int) (*ProjectSearchResponse, error) {
+func (c *Client) SearchProjects(ctx context.Context, query string, startAt, maxResults int) (*ProjectSearchResponse, error) {
 	params := map[string]string{}
 
 	if query != "" {
@@ -85,117 +86,120 @@ func (c *Client) SearchProjects(query string, startAt, maxResults int) (*Project
 	}
 
 	urlStr := buildURL(fmt.Sprintf("%s/project/search", c.BaseURL), params)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("searching projects: %w", err)
 	}
 
 	var result ProjectSearchResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse project search results: %w", err)
+		return nil, fmt.Errorf("parsing project search results: %w", err)
 	}
 
 	return &result, nil
 }
 
 // GetProject retrieves a project by key or ID
-func (c *Client) GetProject(projectKeyOrID string) (*ProjectDetail, error) {
+func (c *Client) GetProject(ctx context.Context, projectKeyOrID string) (*ProjectDetail, error) {
 	if projectKeyOrID == "" {
 		return nil, ErrProjectKeyRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/project/%s", c.BaseURL, url.PathEscape(projectKeyOrID))
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching project: %w", err)
 	}
 
 	var project ProjectDetail
 	if err := json.Unmarshal(body, &project); err != nil {
-		return nil, fmt.Errorf("failed to parse project: %w", err)
+		return nil, fmt.Errorf("parsing project: %w", err)
 	}
 
 	return &project, nil
 }
 
 // CreateProject creates a new project
-func (c *Client) CreateProject(req *CreateProjectRequest) (*ProjectDetail, error) {
+func (c *Client) CreateProject(ctx context.Context, req *CreateProjectRequest) (*ProjectDetail, error) {
 	urlStr := fmt.Sprintf("%s/project", c.BaseURL)
-	body, err := c.post(urlStr, req)
+	body, err := c.Post(ctx, urlStr, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating project: %w", err)
 	}
 
 	var project ProjectDetail
 	if err := json.Unmarshal(body, &project); err != nil {
-		return nil, fmt.Errorf("failed to parse created project: %w", err)
+		return nil, fmt.Errorf("parsing created project: %w", err)
 	}
 
 	return &project, nil
 }
 
 // UpdateProject updates an existing project
-func (c *Client) UpdateProject(projectKeyOrID string, req *UpdateProjectRequest) (*ProjectDetail, error) {
+func (c *Client) UpdateProject(ctx context.Context, projectKeyOrID string, req *UpdateProjectRequest) (*ProjectDetail, error) {
 	if projectKeyOrID == "" {
 		return nil, ErrProjectKeyRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/project/%s", c.BaseURL, url.PathEscape(projectKeyOrID))
-	body, err := c.put(urlStr, req)
+	body, err := c.Put(ctx, urlStr, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("updating project: %w", err)
 	}
 
 	var project ProjectDetail
 	if err := json.Unmarshal(body, &project); err != nil {
-		return nil, fmt.Errorf("failed to parse updated project: %w", err)
+		return nil, fmt.Errorf("parsing updated project: %w", err)
 	}
 
 	return &project, nil
 }
 
 // DeleteProject soft-deletes a project (moves to trash)
-func (c *Client) DeleteProject(projectKeyOrID string) error {
+func (c *Client) DeleteProject(ctx context.Context, projectKeyOrID string) error {
 	if projectKeyOrID == "" {
 		return ErrProjectKeyRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/project/%s", c.BaseURL, url.PathEscape(projectKeyOrID))
-	_, err := c.delete(urlStr)
-	return err
+	_, err := c.Delete(ctx, urlStr)
+	if err != nil {
+		return fmt.Errorf("deleting project %s: %w", projectKeyOrID, err)
+	}
+	return nil
 }
 
 // RestoreProject restores a project from the trash
-func (c *Client) RestoreProject(projectKeyOrID string) (*ProjectDetail, error) {
+func (c *Client) RestoreProject(ctx context.Context, projectKeyOrID string) (*ProjectDetail, error) {
 	if projectKeyOrID == "" {
 		return nil, ErrProjectKeyRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/project/%s/restore", c.BaseURL, url.PathEscape(projectKeyOrID))
-	body, err := c.post(urlStr, nil)
+	body, err := c.Post(ctx, urlStr, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("restoring project: %w", err)
 	}
 
 	var project ProjectDetail
 	if err := json.Unmarshal(body, &project); err != nil {
-		return nil, fmt.Errorf("failed to parse restored project: %w", err)
+		return nil, fmt.Errorf("parsing restored project: %w", err)
 	}
 
 	return &project, nil
 }
 
 // ListProjectTypes returns available project types
-func (c *Client) ListProjectTypes() ([]ProjectType, error) {
+func (c *Client) ListProjectTypes(ctx context.Context) ([]ProjectType, error) {
 	urlStr := fmt.Sprintf("%s/project/type", c.BaseURL)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching project types: %w", err)
 	}
 
 	var types []ProjectType
 	if err := json.Unmarshal(body, &types); err != nil {
-		return nil, fmt.Errorf("failed to parse project types: %w", err)
+		return nil, fmt.Errorf("parsing project types: %w", err)
 	}
 
 	return types, nil

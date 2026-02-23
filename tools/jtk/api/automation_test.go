@@ -1,14 +1,17 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 )
+
+// jsonEq is defined in types_test.go (same package)
 
 func newTestClientWithServer(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.Server) {
 	t.Helper()
@@ -18,12 +21,14 @@ func newTestClientWithServer(t *testing.T, handler http.HandlerFunc) (*Client, *
 		Email:    "user@example.com",
 		APIToken: "token",
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 	return client, server
 }
 
 func TestGetCloudID(t *testing.T) {
+	t.Parallel()
 	t.Run("successful fetch", func(t *testing.T) {
+		t.Parallel()
 		client, server := newTestClientWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/_edge/tenant_info" {
 				w.WriteHeader(http.StatusOK)
@@ -34,38 +39,39 @@ func TestGetCloudID(t *testing.T) {
 		}))
 		defer server.Close()
 
-		cloudID, err := client.GetCloudID()
-		require.NoError(t, err)
-		assert.Equal(t, "abc-123-def", cloudID)
+		cloudID, err := client.GetCloudID(context.Background())
+		testutil.RequireNoError(t, err)
+		testutil.Equal(t, cloudID, "abc-123-def")
 
 		// Second call should return cached value without hitting server
-		cloudID2, err := client.GetCloudID()
-		require.NoError(t, err)
-		assert.Equal(t, "abc-123-def", cloudID2)
+		cloudID2, err := client.GetCloudID(context.Background())
+		testutil.RequireNoError(t, err)
+		testutil.Equal(t, cloudID2, "abc-123-def")
 	})
 
 	t.Run("empty cloud ID", func(t *testing.T) {
-		client, server := newTestClientWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Parallel()
+		client, server := newTestClientWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"cloudId":""}`))
 		}))
 		defer server.Close()
 
-		_, err := client.GetCloudID()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "empty cloud ID")
+		_, err := client.GetCloudID(context.Background())
+		testutil.Error(t, err)
+		testutil.Contains(t, err.Error(), "empty cloud ID")
 	})
 
 	t.Run("server error", func(t *testing.T) {
-		client, server := newTestClientWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client, server := newTestClientWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"error":"internal"}`))
 		}))
 		defer server.Close()
 
-		_, err := client.GetCloudID()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to fetch cloud ID")
+		_, err := client.GetCloudID(context.Background())
+		testutil.Error(t, err)
+		testutil.Contains(t, err.Error(), "fetching cloud ID")
 	})
 }
 
@@ -80,13 +86,33 @@ func TestAutomationBaseURL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	baseURL, err := client.AutomationBaseURL()
-	require.NoError(t, err)
-	assert.Equal(t, server.URL+"/gateway/api/automation/public/jira/my-cloud-id/rest/v1", baseURL)
+	baseURL, err := client.AutomationBaseURL(context.Background())
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, baseURL, server.URL+"/gateway/api/automation/public/jira/my-cloud-id/rest/v1")
+}
+
+func TestListAutomationRules_CancelledContext(t *testing.T) {
+	t.Parallel()
+	client, server := newTestClientWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/_edge/tenant_info" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"cloudId":"cloud-1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := client.ListAutomationRules(ctx)
+	testutil.Error(t, err)
+	testutil.Contains(t, err.Error(), "listing automation rules")
 }
 
 func TestListAutomationRules(t *testing.T) {
-	callCount := 0
 	client, server := newTestClientWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/_edge/tenant_info" {
 			w.WriteHeader(http.StatusOK)
@@ -94,7 +120,6 @@ func TestListAutomationRules(t *testing.T) {
 			return
 		}
 
-		callCount++
 		w.WriteHeader(http.StatusOK)
 		resp := AutomationRuleSummaryResponse{
 			Links: automationLinks{},
@@ -107,13 +132,13 @@ func TestListAutomationRules(t *testing.T) {
 	}))
 	defer server.Close()
 
-	rules, err := client.ListAutomationRules()
-	require.NoError(t, err)
-	assert.Len(t, rules, 2)
-	assert.Equal(t, "Rule One", rules[0].Name)
-	assert.Equal(t, "ENABLED", rules[0].State)
-	assert.Equal(t, "Rule Two", rules[1].Name)
-	assert.Equal(t, "DISABLED", rules[1].State)
+	rules, err := client.ListAutomationRules(context.Background())
+	testutil.RequireNoError(t, err)
+	testutil.Len(t, rules, 2)
+	testutil.Equal(t, rules[0].Name, "Rule One")
+	testutil.Equal(t, rules[0].State, "ENABLED")
+	testutil.Equal(t, rules[1].Name, "Rule Two")
+	testutil.Equal(t, rules[1].State, "DISABLED")
 }
 
 func TestListAutomationRulesFiltered(t *testing.T) {
@@ -138,11 +163,11 @@ func TestListAutomationRulesFiltered(t *testing.T) {
 	defer server.Close()
 
 	t.Run("filter ENABLED", func(t *testing.T) {
-		rules, err := client.ListAutomationRulesFiltered("ENABLED")
-		require.NoError(t, err)
-		assert.Len(t, rules, 2)
+		rules, err := client.ListAutomationRulesFiltered(context.Background(), "ENABLED")
+		testutil.RequireNoError(t, err)
+		testutil.Len(t, rules, 2)
 		for _, r := range rules {
-			assert.Equal(t, "ENABLED", r.State)
+			testutil.Equal(t, r.State, "ENABLED")
 		}
 	})
 
@@ -167,16 +192,16 @@ func TestListAutomationRulesFiltered(t *testing.T) {
 		}))
 		defer server2.Close()
 
-		rules, err := client2.ListAutomationRulesFiltered("DISABLED")
-		require.NoError(t, err)
-		assert.Len(t, rules, 1)
-		assert.Equal(t, "Disabled Rule", rules[0].Name)
+		rules, err := client2.ListAutomationRulesFiltered(context.Background(), "DISABLED")
+		testutil.RequireNoError(t, err)
+		testutil.Len(t, rules, 1)
+		testutil.Equal(t, rules[0].Name, "Disabled Rule")
 	})
 
 	t.Run("no filter", func(t *testing.T) {
-		rules, err := client.ListAutomationRulesFiltered("")
-		require.NoError(t, err)
-		assert.Len(t, rules, 3)
+		rules, err := client.ListAutomationRulesFiltered(context.Background(), "")
+		testutil.RequireNoError(t, err)
+		testutil.Len(t, rules, 3)
 	})
 }
 
@@ -210,15 +235,15 @@ func TestGetAutomationRule(t *testing.T) {
 	}))
 	defer server.Close()
 
-	rule, err := client.GetAutomationRule("42")
-	require.NoError(t, err)
-	assert.Equal(t, "My Automation Rule", rule.Name)
-	assert.Equal(t, "ENABLED", rule.State)
-	require.NotNil(t, rule.Trigger)
-	assert.Equal(t, "TRIGGER", rule.Trigger.Component)
-	assert.Len(t, rule.Components, 2)
-	assert.Equal(t, "CONDITION", rule.Components[0].Component)
-	assert.Equal(t, "ACTION", rule.Components[1].Component)
+	rule, err := client.GetAutomationRule(context.Background(), "42")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, rule.Name, "My Automation Rule")
+	testutil.Equal(t, rule.State, "ENABLED")
+	testutil.NotNil(t, rule.Trigger)
+	testutil.Equal(t, rule.Trigger.Component, "TRIGGER")
+	testutil.Len(t, rule.Components, 2)
+	testutil.Equal(t, rule.Components[0].Component, "CONDITION")
+	testutil.Equal(t, rule.Components[1].Component, "ACTION")
 }
 
 func TestGetAutomationRuleRaw(t *testing.T) {
@@ -236,9 +261,9 @@ func TestGetAutomationRuleRaw(t *testing.T) {
 	}))
 	defer server.Close()
 
-	raw, err := client.GetAutomationRuleRaw("42")
-	require.NoError(t, err)
-	assert.Equal(t, expectedJSON, string(raw))
+	raw, err := client.GetAutomationRuleRaw(context.Background(), "42")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, string(raw), expectedJSON)
 }
 
 func TestUpdateAutomationRule(t *testing.T) {
@@ -263,9 +288,9 @@ func TestUpdateAutomationRule(t *testing.T) {
 	defer server.Close()
 
 	ruleJSON := json.RawMessage(`{"name":"Updated Rule","state":"ENABLED"}`)
-	err := client.UpdateAutomationRule("42", ruleJSON)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"name":"Updated Rule","state":"ENABLED"}`, string(receivedBody))
+	err := client.UpdateAutomationRule(context.Background(), "42", ruleJSON)
+	testutil.RequireNoError(t, err)
+	jsonEq(t, string(receivedBody), `{"name":"Updated Rule","state":"ENABLED"}`)
 }
 
 func TestSetAutomationRuleState(t *testing.T) {
@@ -285,10 +310,10 @@ func TestSetAutomationRuleState(t *testing.T) {
 		}))
 		defer server.Close()
 
-		err := client.SetAutomationRuleState("42", true)
-		require.NoError(t, err)
+		err := client.SetAutomationRuleState(context.Background(), "42", true)
+		testutil.RequireNoError(t, err)
 		// Verify the JSON field name is "value" per the Automation REST API spec
-		assert.JSONEq(t, `{"value":"ENABLED"}`, string(rawBody))
+		jsonEq(t, string(rawBody), `{"value":"ENABLED"}`)
 	})
 
 	t.Run("disable", func(t *testing.T) {
@@ -307,9 +332,9 @@ func TestSetAutomationRuleState(t *testing.T) {
 		}))
 		defer server.Close()
 
-		err := client.SetAutomationRuleState("42", false)
-		require.NoError(t, err)
-		assert.JSONEq(t, `{"value":"DISABLED"}`, string(rawBody))
+		err := client.SetAutomationRuleState(context.Background(), "42", false)
+		testutil.RequireNoError(t, err)
+		jsonEq(t, string(rawBody), `{"value":"DISABLED"}`)
 	})
 }
 
@@ -332,20 +357,20 @@ func TestCreateAutomationRule(t *testing.T) {
 	defer server.Close()
 
 	ruleJSON := json.RawMessage(`{"name":"New Rule","state":"DISABLED"}`)
-	resp, err := client.CreateAutomationRule(ruleJSON)
-	require.NoError(t, err)
-	assert.Equal(t, http.MethodPost, receivedMethod)
-	assert.JSONEq(t, `{"name":"New Rule","state":"DISABLED"}`, string(receivedBody))
+	resp, err := client.CreateAutomationRule(context.Background(), ruleJSON)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, receivedMethod, http.MethodPost)
+	jsonEq(t, string(receivedBody), `{"name":"New Rule","state":"DISABLED"}`)
 
 	var created struct {
 		ID      json.Number `json:"id"`
 		RuleKey string      `json:"ruleKey"`
 		Name    string      `json:"name"`
 	}
-	require.NoError(t, json.Unmarshal(resp, &created))
-	assert.Equal(t, "99", created.ID.String())
-	assert.Equal(t, "new-uuid-123", created.RuleKey)
-	assert.Equal(t, "New Rule", created.Name)
+	testutil.RequireNoError(t, json.Unmarshal(resp, &created))
+	testutil.Equal(t, created.ID.String(), "99")
+	testutil.Equal(t, created.RuleKey, "new-uuid-123")
+	testutil.Equal(t, created.Name, "New Rule")
 }
 
 func TestAutomationRuleIdentifier(t *testing.T) {
@@ -378,7 +403,7 @@ func TestAutomationRuleIdentifier(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.rule.Identifier())
+			testutil.Equal(t, tt.rule.Identifier(), tt.expected)
 		})
 	}
 }
@@ -413,7 +438,7 @@ func TestAutomationRuleSummaryIdentifier(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.summary.Identifier())
+			testutil.Equal(t, tt.summary.Identifier(), tt.expected)
 		})
 	}
 }
@@ -425,8 +450,8 @@ func TestItemsLegacyFallback(t *testing.T) {
 			Values: []AutomationRuleSummary{{UUID: "v-1"}},
 		}
 		items := resp.Items()
-		require.Len(t, items, 1)
-		assert.Equal(t, "d-1", items[0].UUID)
+		testutil.Len(t, items, 1)
+		testutil.Equal(t, items[0].UUID, "d-1")
 	})
 
 	t.Run("falls back to Values when Data is empty", func(t *testing.T) {
@@ -437,8 +462,8 @@ func TestItemsLegacyFallback(t *testing.T) {
 			},
 		}
 		items := resp.Items()
-		require.Len(t, items, 2)
-		assert.Equal(t, "Legacy Rule", items[0].Name)
+		testutil.Len(t, items, 2)
+		testutil.Equal(t, items[0].Name, "Legacy Rule")
 	})
 }
 
@@ -449,19 +474,19 @@ func TestNextURLLegacyFallback(t *testing.T) {
 			Links: automationLinks{Next: &next},
 			Next:  "http://example.com/legacy-next",
 		}
-		assert.Equal(t, "http://example.com/next", resp.NextURL())
+		testutil.Equal(t, resp.NextURL(), "http://example.com/next")
 	})
 
 	t.Run("falls back to top-level Next", func(t *testing.T) {
 		resp := AutomationRuleSummaryResponse{
 			Next: "http://example.com/legacy-next",
 		}
-		assert.Equal(t, "http://example.com/legacy-next", resp.NextURL())
+		testutil.Equal(t, resp.NextURL(), "http://example.com/legacy-next")
 	})
 
 	t.Run("returns empty when no next URL", func(t *testing.T) {
 		resp := AutomationRuleSummaryResponse{}
-		assert.Equal(t, "", resp.NextURL())
+		testutil.Equal(t, resp.NextURL(), "")
 	})
 }
 
@@ -479,10 +504,10 @@ func TestGetAutomationRuleLegacyFallback(t *testing.T) {
 		}))
 		defer server.Close()
 
-		rule, err := client.GetAutomationRule("42")
-		require.NoError(t, err)
-		assert.Equal(t, "Legacy Rule", rule.Name)
-		assert.Equal(t, "ENABLED", rule.State)
+		rule, err := client.GetAutomationRule(context.Background(), "42")
+		testutil.RequireNoError(t, err)
+		testutil.Equal(t, rule.Name, "Legacy Rule")
+		testutil.Equal(t, rule.State, "ENABLED")
 	})
 
 	t.Run("normalizes RuleKey to UUID in legacy shape", func(t *testing.T) {
@@ -498,10 +523,10 @@ func TestGetAutomationRuleLegacyFallback(t *testing.T) {
 		}))
 		defer server.Close()
 
-		rule, err := client.GetAutomationRule("rk-99")
-		require.NoError(t, err)
-		assert.Equal(t, "rk-99", rule.UUID)
-		assert.Equal(t, "rk-99", rule.RuleKey)
+		rule, err := client.GetAutomationRule(context.Background(), "rk-99")
+		testutil.RequireNoError(t, err)
+		testutil.Equal(t, rule.UUID, "rk-99")
+		testutil.Equal(t, rule.RuleKey, "rk-99")
 	})
 
 	t.Run("normalizes RuleKey to UUID in envelope shape", func(t *testing.T) {
@@ -517,10 +542,10 @@ func TestGetAutomationRuleLegacyFallback(t *testing.T) {
 		}))
 		defer server.Close()
 
-		rule, err := client.GetAutomationRule("rk-envelope")
-		require.NoError(t, err)
-		assert.Equal(t, "rk-envelope", rule.UUID)
-		assert.Equal(t, "Envelope RuleKey", rule.Name)
+		rule, err := client.GetAutomationRule(context.Background(), "rk-envelope")
+		testutil.RequireNoError(t, err)
+		testutil.Equal(t, rule.UUID, "rk-envelope")
+		testutil.Equal(t, rule.Name, "Envelope RuleKey")
 	})
 }
 
@@ -537,15 +562,15 @@ func TestListAutomationRulesLegacyShape(t *testing.T) {
 	}))
 	defer server.Close()
 
-	rules, err := client.ListAutomationRules()
-	require.NoError(t, err)
-	assert.Len(t, rules, 2)
-	assert.Equal(t, "Old Rule 1", rules[0].Name)
-	assert.Equal(t, "Old Rule 2", rules[1].Name)
+	rules, err := client.ListAutomationRules(context.Background())
+	testutil.RequireNoError(t, err)
+	testutil.Len(t, rules, 2)
+	testutil.Equal(t, rules[0].Name, "Old Rule 1")
+	testutil.Equal(t, rules[1].Name, "Old Rule 2")
 }
 
 func TestListAutomationRulesPagination(t *testing.T) {
-	page := 0
+	var page int32
 	client, server := newTestClientWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/_edge/tenant_info" {
 			w.WriteHeader(http.StatusOK)
@@ -553,9 +578,9 @@ func TestListAutomationRulesPagination(t *testing.T) {
 			return
 		}
 
-		page++
+		p := atomic.AddInt32(&page, 1)
 		w.WriteHeader(http.StatusOK)
-		if page == 1 {
+		if p == 1 {
 			next := "http://" + r.Host + r.URL.Path + "?cursor=abc"
 			resp := AutomationRuleSummaryResponse{
 				Links: automationLinks{Next: &next},
@@ -575,11 +600,11 @@ func TestListAutomationRulesPagination(t *testing.T) {
 	}))
 	defer server.Close()
 
-	rules, err := client.ListAutomationRules()
-	require.NoError(t, err)
-	assert.Len(t, rules, 3)
-	assert.Equal(t, "Rule 1", rules[0].Name)
-	assert.Equal(t, "Rule 2", rules[1].Name)
-	assert.Equal(t, "Rule 3", rules[2].Name)
-	assert.Equal(t, 2, page) // Verify two pages were fetched
+	rules, err := client.ListAutomationRules(context.Background())
+	testutil.RequireNoError(t, err)
+	testutil.Len(t, rules, 3)
+	testutil.Equal(t, rules[0].Name, "Rule 1")
+	testutil.Equal(t, rules[1].Name, "Rule 2")
+	testutil.Equal(t, rules[2].Name, "Rule 3")
+	testutil.Equal(t, atomic.LoadInt32(&page), int32(2)) // Verify two pages were fetched
 }

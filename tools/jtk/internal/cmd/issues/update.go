@@ -1,6 +1,7 @@
 package issues
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -46,7 +47,7 @@ transparently (since the standard update API does not support type changes).`,
   jtk issues update PROJ-123 --field priority=High --field "Story Points"=5`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUpdate(opts, args[0], summary, description, parent, assignee, issueType, fields)
+			return runUpdate(cmd.Context(), opts, args[0], summary, description, parent, assignee, issueType, fields)
 		},
 	}
 
@@ -60,7 +61,7 @@ transparently (since the standard update API does not support type changes).`,
 	return cmd
 }
 
-func runUpdate(opts *root.Options, issueKey, summary, description, parent, assignee, issueType string, fieldArgs []string) error {
+func runUpdate(ctx context.Context, opts *root.Options, issueKey, summary, description, parent, assignee, issueType string, fieldArgs []string) error {
 	v := opts.View()
 
 	// Validate that at least one field is being updated before making API calls
@@ -75,13 +76,13 @@ func runUpdate(opts *root.Options, issueKey, summary, description, parent, assig
 
 	// Handle type change via the move API
 	if issueType != "" {
-		if err := changeIssueType(client, v, issueKey, issueType); err != nil {
+		if err := changeIssueType(ctx, client, v, issueKey, issueType); err != nil {
 			return err
 		}
 	}
 
 	// Handle other field updates via the standard update API
-	fields := make(map[string]interface{})
+	fields := make(map[string]any)
 
 	if summary != "" {
 		fields["summary"] = summary
@@ -96,7 +97,7 @@ func runUpdate(opts *root.Options, issueKey, summary, description, parent, assig
 	}
 
 	if assignee != "" {
-		accountID, err := resolveAssignee(client, assignee)
+		accountID, err := resolveAssignee(ctx, client, assignee)
 		if err != nil {
 			return err
 		}
@@ -105,9 +106,9 @@ func runUpdate(opts *root.Options, issueKey, summary, description, parent, assig
 
 	// Parse additional fields
 	if len(fieldArgs) > 0 {
-		allFields, err := client.GetFields()
+		allFields, err := client.GetFields(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to get field metadata: %w", err)
+			return fmt.Errorf("getting field metadata: %w", err)
 		}
 
 		for _, f := range fieldArgs {
@@ -143,7 +144,7 @@ func runUpdate(opts *root.Options, issueKey, summary, description, parent, assig
 
 	req := api.BuildUpdateRequest(fields)
 
-	if err := client.UpdateIssue(issueKey, req); err != nil {
+	if err := client.UpdateIssue(ctx, issueKey, req); err != nil {
 		return err
 	}
 
@@ -151,12 +152,12 @@ func runUpdate(opts *root.Options, issueKey, summary, description, parent, assig
 	return nil
 }
 
-func changeIssueType(client *api.Client, v interface {
-	Info(string, ...interface{})
-	Success(string, ...interface{})
+func changeIssueType(ctx context.Context, client *api.Client, v interface {
+	Info(string, ...any)
+	Success(string, ...any)
 }, issueKey, targetTypeName string) error {
 	// Get the issue to find its project
-	issue, err := client.GetIssue(issueKey)
+	issue, err := client.GetIssue(ctx, issueKey)
 	if err != nil {
 		return fmt.Errorf("failed to get issue: %w", err)
 	}
@@ -173,7 +174,7 @@ func changeIssueType(client *api.Client, v interface {
 	}
 
 	// Get available issue types in the project
-	issueTypes, err := client.GetProjectIssueTypes(projectKey)
+	issueTypes, err := client.GetProjectIssueTypes(ctx, projectKey)
 	if err != nil {
 		return fmt.Errorf("failed to get project issue types: %w", err)
 	}
@@ -201,7 +202,7 @@ func changeIssueType(client *api.Client, v interface {
 	// Use the move API to change the type within the same project
 	req := api.BuildMoveRequest([]string{issueKey}, projectKey, targetIssueType.ID, false)
 
-	resp, err := client.MoveIssues(req)
+	resp, err := client.MoveIssues(ctx, req)
 	if err != nil {
 		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
 			return fmt.Errorf("type change failed - this feature requires Jira Cloud")
@@ -211,7 +212,7 @@ func changeIssueType(client *api.Client, v interface {
 
 	// Wait for completion
 	for {
-		status, err := client.GetMoveTaskStatus(resp.TaskID)
+		status, err := client.GetMoveTaskStatus(ctx, resp.TaskID)
 		if err != nil {
 			return fmt.Errorf("failed to get task status: %w", err)
 		}

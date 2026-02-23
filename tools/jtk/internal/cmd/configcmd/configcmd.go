@@ -1,6 +1,8 @@
+// Package configcmd provides CLI commands for managing jtk configuration.
 package configcmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -42,7 +44,7 @@ func newShowCmd(opts *root.Options) *cobra.Command {
 		Use:   "show",
 		Short: "Show current configuration",
 		Long:  "Display the current configuration values (token is masked).",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			v := opts.View()
 
 			url := config.GetURL()
@@ -103,8 +105,8 @@ Note: Environment variables (JIRA_*, ATLASSIAN_*) will still be used if set.`,
 
   # Clear without confirmation
   jtk config clear --force`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClear(clearOpts)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runClear(cmd.Context(), clearOpts)
 		},
 	}
 
@@ -113,7 +115,8 @@ Note: Environment variables (JIRA_*, ATLASSIAN_*) will still be used if set.`,
 	return cmd
 }
 
-func runClear(opts *clearOptions) error {
+func runClear(ctx context.Context, opts *clearOptions) error {
+	_ = ctx
 	v := opts.View()
 	configPath := config.Path()
 
@@ -125,8 +128,8 @@ func runClear(opts *clearOptions) error {
 
 	// Confirm unless --force
 	if !opts.force {
-		fmt.Printf("This will remove: %s\n", configPath)
-		fmt.Print("Are you sure? [y/N]: ")
+		fmt.Fprintf(opts.Stderr, "This will remove: %s\n", configPath)
+		fmt.Fprint(opts.Stderr, "Are you sure? [y/N]: ")
 
 		var response string
 		_, err := fmt.Fscanln(opts.stdin, &response)
@@ -160,10 +163,10 @@ func runClear(opts *clearOptions) error {
 	}
 
 	if len(envVars) > 0 {
-		fmt.Println()
-		fmt.Printf("Note: The following are still configured via environment variables: %s\n",
+		fmt.Fprintln(opts.Stderr)
+		fmt.Fprintf(opts.Stderr, "Note: The following are still configured via environment variables: %s\n",
 			strings.Join(envVars, ", "))
-		fmt.Println("These will continue to be used. Unset them if you want to fully clear configuration.")
+		fmt.Fprintln(opts.Stderr, "These will continue to be used. Unset them if you want to fully clear configuration.")
 	}
 
 	return nil
@@ -251,7 +254,7 @@ This command tests authentication and API access, providing clear
 pass/fail status and troubleshooting suggestions on failure.`,
 		Example: `  # Test connection
   jtk config test`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			v := opts.View()
 
 			url := config.GetURL()
@@ -275,7 +278,7 @@ pass/fail status and troubleshooting suggestions on failure.`,
 				return nil
 			}
 
-			user, err := client.GetCurrentUser()
+			user, err := client.GetCurrentUser(cmd.Context())
 			if err != nil {
 				v.Error("Authentication failed: %v", err)
 				v.Println("")

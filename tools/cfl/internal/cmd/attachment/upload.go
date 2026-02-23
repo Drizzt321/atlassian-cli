@@ -30,8 +30,8 @@ func newUploadCmd(rootOpts *root.Options) *cobra.Command {
 
   # Upload with a comment (-m for message/comment)
   cfl attachment upload --page 12345 --file image.png -m "Screenshot"`,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runUpload(opts)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runUpload(cmd.Context(), opts)
 		},
 	}
 
@@ -45,7 +45,7 @@ func newUploadCmd(rootOpts *root.Options) *cobra.Command {
 	return cmd
 }
 
-func runUpload(opts *uploadOptions) error {
+func runUpload(ctx context.Context, opts *uploadOptions) error {
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
@@ -53,15 +53,15 @@ func runUpload(opts *uploadOptions) error {
 
 	file, err := os.Open(opts.file)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		return fmt.Errorf("opening file: %w", err)
 	}
 	defer func() { _ = file.Close() }()
 
 	filename := filepath.Base(opts.file)
 
-	attachment, err := client.UploadAttachment(context.Background(), opts.pageID, filename, file, opts.comment)
+	attachment, err := client.UploadAttachment(ctx, opts.pageID, filename, file, opts.comment)
 	if err != nil {
-		return fmt.Errorf("failed to upload attachment: %w", err)
+		return fmt.Errorf("uploading attachment: %w", err)
 	}
 
 	v := opts.View()

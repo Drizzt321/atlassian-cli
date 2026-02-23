@@ -1,14 +1,11 @@
-// parser.go defines shared types for macro parsing in both directions.
 package md
 
-import (
-	"fmt"
-	"log"
-)
+import "fmt"
 
 // SegmentType indicates whether a segment is text or a macro.
 type SegmentType int
 
+// SegmentType constants classify parts of a parsed macro stream.
 const (
 	SegmentText  SegmentType = iota // plain text/HTML content
 	SegmentMacro                    // parsed macro node
@@ -53,10 +50,9 @@ func (pr *ParseResult) AddMacroSegment(macro *MacroNode) {
 }
 
 // AddWarning logs a warning and stores it in the result.
-func (pr *ParseResult) AddWarning(format string, args ...interface{}) {
+func (pr *ParseResult) AddWarning(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	pr.Warnings = append(pr.Warnings, msg)
-	log.Printf("WARN: "+format, args...)
 }
 
 // GetMacros returns all MacroNodes from the parse result.

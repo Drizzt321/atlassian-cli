@@ -1,6 +1,7 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -39,7 +40,7 @@ var DefaultSearchFields = []string{
 }
 
 // Search searches for issues using JQL (uses new /search/jql endpoint)
-func (c *Client) Search(opts SearchOptions) (*SearchResult, error) {
+func (c *Client) Search(ctx context.Context, opts SearchOptions) (*SearchResult, error) {
 	req := SearchRequest{
 		JQL: opts.JQL,
 	}
@@ -62,21 +63,21 @@ func (c *Client) Search(opts SearchOptions) (*SearchResult, error) {
 	}
 
 	urlStr := fmt.Sprintf("%s/search/jql", c.BaseURL)
-	body, err := c.post(urlStr, req)
+	body, err := c.Post(ctx, urlStr, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("searching issues: %w", err)
 	}
 
 	var result SearchResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse search results: %w", err)
+		return nil, fmt.Errorf("parsing search results: %w", err)
 	}
 
 	return &result, nil
 }
 
 // SearchAll searches for all issues matching JQL (handles pagination)
-func (c *Client) SearchAll(jql string, maxResults int) ([]Issue, error) {
+func (c *Client) SearchAll(ctx context.Context, jql string, maxResults int) ([]Issue, error) {
 	if maxResults <= 0 {
 		maxResults = 1000
 	}
@@ -86,13 +87,17 @@ func (c *Client) SearchAll(jql string, maxResults int) ([]Issue, error) {
 	pageSize := 100
 
 	for {
-		result, err := c.Search(SearchOptions{
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("searching all issues: %w", err)
+		}
+
+		result, err := c.Search(ctx, SearchOptions{
 			JQL:        jql,
 			StartAt:    startAt,
 			MaxResults: pageSize,
 		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("searching all issues (offset %d): %w", startAt, err)
 		}
 
 		allIssues = append(allIssues, result.Issues...)

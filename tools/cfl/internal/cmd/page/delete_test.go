@@ -2,13 +2,13 @@ package page
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/confluence-cli/api"
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
@@ -16,6 +16,7 @@ import (
 
 // mockPageServer creates a test server that handles GetPage and DeletePage requests
 func mockPageServer(t *testing.T, pageID, title string, deleteStatus int) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && strings.Contains(r.URL.Path, "/pages/"+pageID):
@@ -46,6 +47,7 @@ func newDeleteTestRootOptions() *root.Options {
 }
 
 func TestRunDelete_ConfirmYes(t *testing.T) {
+	t.Parallel()
 	server := mockPageServer(t, "12345", "Test Page", http.StatusNoContent)
 	defer server.Close()
 
@@ -59,11 +61,12 @@ func TestRunDelete_ConfirmYes(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDelete("12345", opts)
-	require.NoError(t, err)
+	err := runDelete(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunDelete_ConfirmYesUppercase(t *testing.T) {
+	t.Parallel()
 	server := mockPageServer(t, "12345", "Test Page", http.StatusNoContent)
 	defer server.Close()
 
@@ -77,11 +80,12 @@ func TestRunDelete_ConfirmYesUppercase(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDelete("12345", opts)
-	require.NoError(t, err)
+	err := runDelete(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunDelete_ConfirmNo(t *testing.T) {
+	t.Parallel()
 	server := mockPageServer(t, "12345", "Test Page", http.StatusNoContent)
 	defer server.Close()
 
@@ -95,11 +99,12 @@ func TestRunDelete_ConfirmNo(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDelete("12345", opts)
-	require.NoError(t, err) // Cancellation is not an error
+	err := runDelete(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err) // Cancellation is not an error
 }
 
 func TestRunDelete_ConfirmEmpty(t *testing.T) {
+	t.Parallel()
 	server := mockPageServer(t, "12345", "Test Page", http.StatusNoContent)
 	defer server.Close()
 
@@ -113,11 +118,12 @@ func TestRunDelete_ConfirmEmpty(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDelete("12345", opts)
-	require.NoError(t, err) // Empty input should cancel
+	err := runDelete(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err) // Empty input should cancel
 }
 
 func TestRunDelete_ConfirmOther(t *testing.T) {
+	t.Parallel()
 	server := mockPageServer(t, "12345", "Test Page", http.StatusNoContent)
 	defer server.Close()
 
@@ -131,11 +137,12 @@ func TestRunDelete_ConfirmOther(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDelete("12345", opts)
-	require.NoError(t, err) // Any non-y/Y input should cancel
+	err := runDelete(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err) // Any non-y/Y input should cancel
 }
 
 func TestRunDelete_Force(t *testing.T) {
+	t.Parallel()
 	server := mockPageServer(t, "12345", "Test Page", http.StatusNoContent)
 	defer server.Close()
 
@@ -148,12 +155,13 @@ func TestRunDelete_Force(t *testing.T) {
 		force:   true,
 	}
 
-	err := runDelete("12345", opts)
-	require.NoError(t, err)
+	err := runDelete(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunDelete_PageNotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message": "Page not found"}`))
 	}))
@@ -168,12 +176,13 @@ func TestRunDelete_PageNotFound(t *testing.T) {
 		force:   true,
 	}
 
-	err := runDelete("99999", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get page")
+	err := runDelete(context.Background(), "99999", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "getting page")
 }
 
 func TestRunDelete_DeleteFailed(t *testing.T) {
+	t.Parallel()
 	server := mockPageServer(t, "12345", "Test Page", http.StatusForbidden)
 	defer server.Close()
 
@@ -186,12 +195,13 @@ func TestRunDelete_DeleteFailed(t *testing.T) {
 		force:   true,
 	}
 
-	err := runDelete("12345", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to delete page")
+	err := runDelete(context.Background(), "12345", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "deleting page")
 }
 
 func TestRunDelete_JSONOutput(t *testing.T) {
+	t.Parallel()
 	server := mockPageServer(t, "12345", "Test Page", http.StatusNoContent)
 	defer server.Close()
 
@@ -205,11 +215,12 @@ func TestRunDelete_JSONOutput(t *testing.T) {
 		force:   true,
 	}
 
-	err := runDelete("12345", opts)
-	require.NoError(t, err)
+	err := runDelete(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunDelete_ConfirmationInputs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		input         string
@@ -226,6 +237,7 @@ func TestRunDelete_ConfirmationInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Track if delete was called
 			deleteCalled := false
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -250,9 +262,9 @@ func TestRunDelete_ConfirmationInputs(t *testing.T) {
 				force:   false,
 			}
 
-			err := runDelete("12345", opts)
-			require.NoError(t, err)
-			assert.Equal(t, tt.shouldProceed, deleteCalled, "delete should have been called: %v", tt.shouldProceed)
+			err := runDelete(context.Background(), "12345", opts)
+			testutil.RequireNoError(t, err)
+			testutil.Equal(t, deleteCalled, tt.shouldProceed)
 		})
 	}
 }

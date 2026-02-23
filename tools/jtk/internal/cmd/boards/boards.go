@@ -1,6 +1,8 @@
+// Package boards provides CLI commands for managing Jira agile boards.
 package boards
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -36,8 +38,8 @@ func newListCmd(opts *root.Options) *cobra.Command {
 
   # List boards for a project
   jtk boards list --project MYPROJECT`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runList(opts, project, maxResults)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runList(cmd.Context(), opts, project, maxResults)
 		},
 	}
 
@@ -47,7 +49,7 @@ func newListCmd(opts *root.Options) *cobra.Command {
 	return cmd
 }
 
-func runList(opts *root.Options, project string, maxResults int) error {
+func runList(ctx context.Context, opts *root.Options, project string, maxResults int) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -55,7 +57,7 @@ func runList(opts *root.Options, project string, maxResults int) error {
 		return err
 	}
 
-	result, err := client.ListBoards(project, 0, maxResults)
+	result, err := client.ListBoards(ctx, project, 0, maxResults)
 	if err != nil {
 		return err
 	}
@@ -70,7 +72,7 @@ func runList(opts *root.Options, project string, maxResults int) error {
 	}
 
 	headers := []string{"ID", "NAME", "TYPE", "PROJECT"}
-	var rows [][]string
+	rows := make([][]string, 0, len(result.Values))
 
 	for _, b := range result.Values {
 		rows = append(rows, []string{
@@ -96,12 +98,12 @@ func newGetCmd(opts *root.Options) *cobra.Command {
 			if _, err := fmt.Sscanf(args[0], "%d", &boardID); err != nil {
 				return fmt.Errorf("invalid board ID: %s", args[0])
 			}
-			return runGet(opts, boardID)
+			return runGet(cmd.Context(), opts, boardID)
 		},
 	}
 }
 
-func runGet(opts *root.Options, boardID int) error {
+func runGet(ctx context.Context, opts *root.Options, boardID int) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -109,7 +111,7 @@ func runGet(opts *root.Options, boardID int) error {
 		return err
 	}
 
-	board, err := client.GetBoard(boardID)
+	board, err := client.GetBoard(ctx, boardID)
 	if err != nil {
 		return err
 	}

@@ -2,12 +2,12 @@ package attachment
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/confluence-cli/api"
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
@@ -23,7 +23,8 @@ func newListTestRootOptions() *root.Options {
 }
 
 func TestRunList_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"results": [
@@ -44,12 +45,13 @@ func TestRunList_Success(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_Empty(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results": []}`))
 	}))
@@ -65,12 +67,13 @@ func TestRunList_Empty(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_APIError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message": "Page not found"}`))
 	}))
@@ -86,13 +89,14 @@ func TestRunList_APIError(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to list attachments")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "listing attachments")
 }
 
 func TestRunList_JSONOutput(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"results": [
@@ -113,11 +117,12 @@ func TestRunList_JSONOutput(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_InvalidOutputFormat(t *testing.T) {
+	t.Parallel()
 	// Don't need a server - should fail before API call
 	rootOpts := newListTestRootOptions()
 	rootOpts.Output = "invalid"
@@ -127,12 +132,13 @@ func TestRunList_InvalidOutputFormat(t *testing.T) {
 		pageID:  "12345",
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid output format")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "invalid output format")
 }
 
 func TestFormatFileSize(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		bytes    int64
 		expected string
@@ -149,13 +155,15 @@ func TestFormatFileSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
+			t.Parallel()
 			result := formatFileSize(tt.bytes)
-			assert.Equal(t, tt.expected, result)
+			testutil.Equal(t, tt.expected, result)
 		})
 	}
 }
 
 func TestIsAttachmentReferenced(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		filename string
@@ -202,13 +210,15 @@ func TestIsAttachmentReferenced(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := isAttachmentReferenced(tt.filename, tt.content)
-			assert.Equal(t, tt.expected, result)
+			testutil.Equal(t, tt.expected, result)
 		})
 	}
 }
 
 func TestFilterUnusedAttachments(t *testing.T) {
+	t.Parallel()
 	attachments := []api.Attachment{
 		{ID: "att1", Title: "used-image.png"},
 		{ID: "att2", Title: "unused-doc.pdf"},
@@ -222,12 +232,13 @@ func TestFilterUnusedAttachments(t *testing.T) {
 
 	unused := filterUnusedAttachments(attachments, content)
 
-	require.Len(t, unused, 1)
-	assert.Equal(t, "att2", unused[0].ID)
-	assert.Equal(t, "unused-doc.pdf", unused[0].Title)
+	testutil.Len(t, unused, 1)
+	testutil.Equal(t, "att2", unused[0].ID)
+	testutil.Equal(t, "unused-doc.pdf", unused[0].Title)
 }
 
 func TestFilterUnusedAttachments_AllUnused(t *testing.T) {
+	t.Parallel()
 	attachments := []api.Attachment{
 		{ID: "att1", Title: "orphan1.png"},
 		{ID: "att2", Title: "orphan2.pdf"},
@@ -237,10 +248,11 @@ func TestFilterUnusedAttachments_AllUnused(t *testing.T) {
 
 	unused := filterUnusedAttachments(attachments, content)
 
-	require.Len(t, unused, 2)
+	testutil.Len(t, unused, 2)
 }
 
 func TestFilterUnusedAttachments_NoneUnused(t *testing.T) {
+	t.Parallel()
 	attachments := []api.Attachment{
 		{ID: "att1", Title: "used.png"},
 	}
@@ -249,10 +261,11 @@ func TestFilterUnusedAttachments_NoneUnused(t *testing.T) {
 
 	unused := filterUnusedAttachments(attachments, content)
 
-	assert.Empty(t, unused)
+	testutil.Empty(t, unused)
 }
 
 func TestRunList_UnusedFlag(t *testing.T) {
+	t.Parallel()
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
@@ -294,12 +307,13 @@ func TestRunList_UnusedFlag(t *testing.T) {
 		unused:  true,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
-	assert.Equal(t, 2, requestCount) // Both attachments and page content fetched
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, 2, requestCount) // Both attachments and page content fetched
 }
 
 func TestRunList_UnusedFlag_NoUnused(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/pages/12345/attachments":
@@ -336,6 +350,6 @@ func TestRunList_UnusedFlag_NoUnused(t *testing.T) {
 		unused:  true,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }

@@ -1,5 +1,5 @@
 // Package errors provides error types for Atlassian API responses.
-package errors
+package errors //nolint:revive // intentional shadow of stdlib errors for ergonomic API
 
 import (
 	"encoding/json"
@@ -43,7 +43,7 @@ func (e *APIError) UnmarshalJSON(data []byte) error {
 	}
 
 	if err := json.Unmarshal(data, aux); err != nil {
-		return err
+		return fmt.Errorf("unmarshaling API error: %w", err)
 	}
 
 	// Handle "errors" field which can be object or array
@@ -114,6 +114,7 @@ func ParseAPIError(statusCode int, body []byte) error {
 	apiErr := &APIError{StatusCode: statusCode}
 
 	if len(body) > 0 {
+		// Best-effort parse; unparseable bodies leave apiErr with only StatusCode set.
 		_ = json.Unmarshal(body, apiErr)
 	}
 

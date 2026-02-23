@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
@@ -6,18 +6,18 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 )
 
 func TestClient_Search_Success(t *testing.T) {
+	t.Parallel()
 	testData := loadTestData(t, "search.json")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/rest/api/search", r.URL.Path)
-		assert.Equal(t, "GET", r.Method)
-		assert.Contains(t, r.URL.Query().Get("cql"), `text ~ "test"`)
-		assert.Equal(t, "highlight", r.URL.Query().Get("excerpt"))
+		testutil.Equal(t, "/rest/api/search", r.URL.Path)
+		testutil.Equal(t, "GET", r.Method)
+		testutil.Contains(t, r.URL.Query().Get("cql"), `text ~ "test"`)
+		testutil.Equal(t, "highlight", r.URL.Query().Get("excerpt"))
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(testData)
@@ -29,21 +29,22 @@ func TestClient_Search_Success(t *testing.T) {
 		Text: "test",
 	})
 
-	require.NoError(t, err)
-	assert.Len(t, result.Results, 2)
-	assert.Equal(t, 50, result.TotalSize)
-	assert.True(t, result.HasMore())
+	testutil.RequireNoError(t, err)
+	testutil.Len(t, result.Results, 2)
+	testutil.Equal(t, 50, result.TotalSize)
+	testutil.True(t, result.HasMore())
 
 	// Check first result
 	first := result.Results[0]
-	assert.Equal(t, "12345", first.Content.ID)
-	assert.Equal(t, "page", first.Content.Type)
-	assert.Equal(t, "Getting Started Guide", first.Content.Title)
-	assert.Equal(t, "Development", first.ResultGlobalContainer.Title)
+	testutil.Equal(t, "12345", first.Content.ID)
+	testutil.Equal(t, "page", first.Content.Type)
+	testutil.Equal(t, "Getting Started Guide", first.Content.Title)
+	testutil.Equal(t, "Development", first.ResultGlobalContainer.Title)
 }
 
 func TestClient_Search_EmptyResults(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"results": [],
@@ -61,20 +62,21 @@ func TestClient_Search_EmptyResults(t *testing.T) {
 		Text: "nonexistent",
 	})
 
-	require.NoError(t, err)
-	assert.Len(t, result.Results, 0)
-	assert.False(t, result.HasMore())
+	testutil.RequireNoError(t, err)
+	testutil.Len(t, result.Results, 0)
+	testutil.False(t, result.HasMore())
 }
 
 func TestClient_Search_WithAllOptions(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cql := r.URL.Query().Get("cql")
-		assert.Contains(t, cql, `text ~ "search term"`)
-		assert.Contains(t, cql, `space = "DEV"`)
-		assert.Contains(t, cql, `type = "page"`)
-		assert.Contains(t, cql, `title ~ "guide"`)
-		assert.Contains(t, cql, `label = "documentation"`)
-		assert.Equal(t, "50", r.URL.Query().Get("limit"))
+		testutil.Contains(t, cql, `text ~ "search term"`)
+		testutil.Contains(t, cql, `space = "DEV"`)
+		testutil.Contains(t, cql, `type = "page"`)
+		testutil.Contains(t, cql, `title ~ "guide"`)
+		testutil.Contains(t, cql, `label = "documentation"`)
+		testutil.Equal(t, "50", r.URL.Query().Get("limit"))
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results": [], "totalSize": 0}`))
@@ -90,14 +92,15 @@ func TestClient_Search_WithAllOptions(t *testing.T) {
 		Label: "documentation",
 		Limit: 50,
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }
 
 func TestClient_Search_RawCQL(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Raw CQL should be used as-is
 		cql := r.URL.Query().Get("cql")
-		assert.Equal(t, `type=page AND lastModified > now("-7d")`, cql)
+		testutil.Equal(t, `type=page AND lastModified > now("-7d")`, cql)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results": [], "totalSize": 0}`))
@@ -109,26 +112,29 @@ func TestClient_Search_RawCQL(t *testing.T) {
 		CQL:  `type=page AND lastModified > now("-7d")`,
 		Text: "ignored", // Should be ignored when CQL is set
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }
 
 func TestClient_Search_NoQuery(t *testing.T) {
+	t.Parallel()
 	client := NewClient("http://unused", "user@example.com", "token")
 
 	_, err := client.Search(context.Background(), &SearchOptions{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "search requires a query or filters")
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "search requires a query or filters")
 }
 
 func TestClient_Search_NilOptions(t *testing.T) {
+	t.Parallel()
 	client := NewClient("http://unused", "user@example.com", "token")
 
 	_, err := client.Search(context.Background(), nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "search requires a query or filters")
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "search requires a query or filters")
 }
 
 func TestClient_Search_APIError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		statusCode int
@@ -157,6 +163,7 @@ func TestClient_Search_APIError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.statusCode)
 				_, _ = w.Write([]byte(tt.response))
@@ -166,13 +173,14 @@ func TestClient_Search_APIError(t *testing.T) {
 			client := NewClient(server.URL, "user@example.com", "token")
 			_, err := client.Search(context.Background(), &SearchOptions{Text: "test"})
 
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.errContain)
+			testutil.RequireError(t, err)
+			testutil.Contains(t, err.Error(), tt.errContain)
 		})
 	}
 }
 
 func TestClient_Search_MalformedResponse(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{invalid json`))
@@ -182,11 +190,12 @@ func TestClient_Search_MalformedResponse(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	_, err := client.Search(context.Background(), &SearchOptions{Text: "test"})
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to parse search response")
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "parsing search response")
 }
 
 func TestClient_Search_Pagination(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		start    int
@@ -202,68 +211,77 @@ func TestClient_Search_Pagination(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			resp := &SearchResponse{
 				Start:     tt.start,
 				Size:      tt.size,
 				TotalSize: tt.total,
 			}
-			assert.Equal(t, tt.expected, resp.HasMore())
+			testutil.Equal(t, tt.expected, resp.HasMore())
 		})
 	}
 }
 
 func TestBuildCQL_TextOnly(t *testing.T) {
+	t.Parallel()
 	opts := &SearchOptions{Text: "hello world"}
 	cql := buildCQL(opts)
-	assert.Equal(t, `text ~ "hello world"`, cql)
+	testutil.Equal(t, `text ~ "hello world"`, cql)
 }
 
 func TestBuildCQL_SpaceFilter(t *testing.T) {
+	t.Parallel()
 	opts := &SearchOptions{Space: "DEV"}
 	cql := buildCQL(opts)
-	assert.Equal(t, `space = "DEV"`, cql)
+	testutil.Equal(t, `space = "DEV"`, cql)
 }
 
 func TestBuildCQL_TypeFilter(t *testing.T) {
+	t.Parallel()
 	opts := &SearchOptions{Type: "page"}
 	cql := buildCQL(opts)
-	assert.Equal(t, `type = "page"`, cql)
+	testutil.Equal(t, `type = "page"`, cql)
 }
 
 func TestBuildCQL_TitleFilter(t *testing.T) {
+	t.Parallel()
 	opts := &SearchOptions{Title: "Getting Started"}
 	cql := buildCQL(opts)
-	assert.Equal(t, `title ~ "Getting Started"`, cql)
+	testutil.Equal(t, `title ~ "Getting Started"`, cql)
 }
 
 func TestBuildCQL_LabelFilter(t *testing.T) {
+	t.Parallel()
 	opts := &SearchOptions{Label: "documentation"}
 	cql := buildCQL(opts)
-	assert.Equal(t, `label = "documentation"`, cql)
+	testutil.Equal(t, `label = "documentation"`, cql)
 }
 
 func TestBuildCQL_Combined(t *testing.T) {
+	t.Parallel()
 	opts := &SearchOptions{
 		Text:  "api",
 		Space: "DEV",
 		Type:  "page",
 	}
 	cql := buildCQL(opts)
-	assert.Contains(t, cql, `text ~ "api"`)
-	assert.Contains(t, cql, `space = "DEV"`)
-	assert.Contains(t, cql, `type = "page"`)
-	assert.Contains(t, cql, " AND ")
+	testutil.Contains(t, cql, `text ~ "api"`)
+	testutil.Contains(t, cql, `space = "DEV"`)
+	testutil.Contains(t, cql, `type = "page"`)
+	testutil.Contains(t, cql, " AND ")
 }
 
 func TestBuildCQL_Empty(t *testing.T) {
+	t.Parallel()
 	opts := &SearchOptions{}
 	cql := buildCQL(opts)
-	assert.Empty(t, cql)
+	testutil.Empty(t, cql)
 }
 
 func TestBuildCQL_QuotesInValue(t *testing.T) {
+	t.Parallel()
 	opts := &SearchOptions{Text: `search "quoted" term`}
 	cql := buildCQL(opts)
 	// Go's %q escapes quotes properly
-	assert.Contains(t, cql, `text ~ "search \"quoted\" term"`)
+	testutil.Contains(t, cql, `text ~ "search \"quoted\" term"`)
 }

@@ -1,6 +1,8 @@
 package projects
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
@@ -12,13 +14,13 @@ func newTypesCmd(opts *root.Options) *cobra.Command {
 		Short:   "List project types",
 		Long:    "List available project types for creating new projects.",
 		Example: `  jtk projects types`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTypes(opts)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runTypes(cmd.Context(), opts)
 		},
 	}
 }
 
-func runTypes(opts *root.Options) error {
+func runTypes(ctx context.Context, opts *root.Options) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -26,7 +28,7 @@ func runTypes(opts *root.Options) error {
 		return err
 	}
 
-	types, err := client.ListProjectTypes()
+	types, err := client.ListProjectTypes(ctx)
 	if err != nil {
 		return err
 	}

@@ -78,11 +78,11 @@ convenient flags for common filters, or provide raw CQL for advanced queries.`,
   # Output as JSON for scripting
   cfl search "config" -o json`,
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.query = args[0]
 			}
-			return runSearch(opts)
+			return runSearch(cmd.Context(), opts)
 		},
 	}
 
@@ -99,7 +99,7 @@ convenient flags for common filters, or provide raw CQL for advanced queries.`,
 	return cmd
 }
 
-func runSearch(opts *searchOptions) error {
+func runSearch(ctx context.Context, opts *searchOptions) error {
 	// Validate output format
 	if err := view.ValidateFormat(opts.Output); err != nil {
 		return err
@@ -126,7 +126,7 @@ func runSearch(opts *searchOptions) error {
 	// Handle limit 0 - return empty
 	if opts.limit == 0 {
 		if opts.Output == "json" {
-			return v.JSON([]interface{}{})
+			return v.JSON([]any{})
 		}
 		v.RenderText("No results.")
 		return nil
@@ -160,7 +160,7 @@ func runSearch(opts *searchOptions) error {
 		Limit: opts.limit,
 	}
 
-	result, err := client.Search(context.Background(), apiOpts)
+	result, err := client.Search(ctx, apiOpts)
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
 	}
@@ -172,7 +172,7 @@ func runSearch(opts *searchOptions) error {
 
 	// Render results
 	headers := []string{"ID", "TYPE", "SPACE KEY", "TITLE"}
-	var rows [][]string
+	rows := make([][]string, 0, len(result.Results))
 
 	for _, r := range result.Results {
 		spaceKey := extractSpaceKey(r.ResultGlobalContainer.DisplayURL)

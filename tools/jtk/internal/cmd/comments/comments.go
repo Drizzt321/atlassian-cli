@@ -1,6 +1,9 @@
+// Package comments provides CLI commands for managing Jira issue comments.
 package comments
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
@@ -34,7 +37,7 @@ func newListCmd(opts *root.Options) *cobra.Command {
   jtk comments list PROJ-123 --full`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runList(opts, args[0], maxResults, full)
+			return runList(cmd.Context(), opts, args[0], maxResults, full)
 		},
 	}
 
@@ -44,7 +47,7 @@ func newListCmd(opts *root.Options) *cobra.Command {
 	return cmd
 }
 
-func runList(opts *root.Options, issueKey string, maxResults int, full bool) error {
+func runList(ctx context.Context, opts *root.Options, issueKey string, maxResults int, full bool) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -52,7 +55,7 @@ func runList(opts *root.Options, issueKey string, maxResults int, full bool) err
 		return err
 	}
 
-	result, err := client.GetComments(issueKey, 0, maxResults)
+	result, err := client.GetComments(ctx, issueKey, 0, maxResults)
 	if err != nil {
 		return err
 	}
@@ -85,7 +88,7 @@ func runList(opts *root.Options, issueKey string, maxResults int, full bool) err
 	}
 
 	headers := []string{"ID", "AUTHOR", "CREATED", "BODY"}
-	var rows [][]string
+	rows := make([][]string, 0, len(result.Comments))
 
 	for _, c := range result.Comments {
 		body := ""
@@ -117,7 +120,7 @@ func newAddCmd(opts *root.Options) *cobra.Command {
 		Example: `  jtk comments add PROJ-123 --body "This is my comment"`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAdd(opts, args[0], body)
+			return runAdd(cmd.Context(), opts, args[0], body)
 		},
 	}
 
@@ -127,7 +130,7 @@ func newAddCmd(opts *root.Options) *cobra.Command {
 	return cmd
 }
 
-func runAdd(opts *root.Options, issueKey, body string) error {
+func runAdd(ctx context.Context, opts *root.Options, issueKey, body string) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -135,7 +138,7 @@ func runAdd(opts *root.Options, issueKey, body string) error {
 		return err
 	}
 
-	comment, err := client.AddComment(issueKey, body)
+	comment, err := client.AddComment(ctx, issueKey, body)
 	if err != nil {
 		return err
 	}
@@ -156,14 +159,14 @@ func newDeleteCmd(opts *root.Options) *cobra.Command {
 		Example: `  jtk comments delete PROJ-123 12345`,
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDelete(opts, args[0], args[1])
+			return runDelete(cmd.Context(), opts, args[0], args[1])
 		},
 	}
 
 	return cmd
 }
 
-func runDelete(opts *root.Options, issueKey, commentID string) error {
+func runDelete(ctx context.Context, opts *root.Options, issueKey, commentID string) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -171,7 +174,7 @@ func runDelete(opts *root.Options, issueKey, commentID string) error {
 		return err
 	}
 
-	if err := client.DeleteComment(issueKey, commentID); err != nil {
+	if err := client.DeleteComment(ctx, issueKey, commentID); err != nil {
 		return err
 	}
 

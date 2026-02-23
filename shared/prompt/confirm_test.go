@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 )
 
 func TestConfirm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		input   string
@@ -54,18 +54,20 @@ func TestConfirm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := Confirm(strings.NewReader(tt.input))
 			if tt.wantErr {
-				require.Error(t, err)
+				testutil.RequireError(t, err)
 				return
 			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
+			testutil.RequireNoError(t, err)
+			testutil.Equal(t, got, tt.want)
 		})
 	}
 }
 
 func TestConfirmOrForce(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		force   bool
@@ -101,13 +103,14 @@ func TestConfirmOrForce(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := ConfirmOrForce(tt.force, strings.NewReader(tt.input))
 			if tt.wantErr {
-				require.Error(t, err)
+				testutil.RequireError(t, err)
 				return
 			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
+			testutil.RequireNoError(t, err)
+			testutil.Equal(t, got, tt.want)
 		})
 	}
 }

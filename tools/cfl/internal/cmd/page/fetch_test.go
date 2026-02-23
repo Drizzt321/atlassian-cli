@@ -7,17 +7,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/confluence-cli/api"
 )
 
 func TestGetPageWithBodyFallback_StorageHasContent(t *testing.T) {
+	t.Parallel()
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		assert.Equal(t, "storage", r.URL.Query().Get("body-format"), "should only request storage")
+		testutil.Equal(t, "storage", r.URL.Query().Get("body-format"))
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"id": "12345",
@@ -31,12 +31,13 @@ func TestGetPageWithBodyFallback_StorageHasContent(t *testing.T) {
 
 	client := api.NewClient(server.URL, "test@example.com", "token")
 	page, err := getPageWithBodyFallback(context.Background(), client, "12345")
-	require.NoError(t, err)
-	assert.Equal(t, 1, callCount, "should not make a second call when storage has content")
-	assert.True(t, hasStorageContent(page))
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, 1, callCount)
+	testutil.True(t, hasStorageContent(page))
 }
 
 func TestGetPageWithBodyFallback_StorageEmpty_FallsBackToADF(t *testing.T) {
+	t.Parallel()
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
@@ -65,12 +66,13 @@ func TestGetPageWithBodyFallback_StorageEmpty_FallsBackToADF(t *testing.T) {
 
 	client := api.NewClient(server.URL, "test@example.com", "token")
 	page, err := getPageWithBodyFallback(context.Background(), client, "12345")
-	require.NoError(t, err)
-	assert.Equal(t, 2, callCount, "should make fallback call when storage is empty")
-	assert.True(t, hasADFContent(page))
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, 2, callCount)
+	testutil.True(t, hasADFContent(page))
 }
 
 func TestGetPageWithBodyFallback_NullBody_FallsBackToADF(t *testing.T) {
+	t.Parallel()
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
@@ -99,13 +101,14 @@ func TestGetPageWithBodyFallback_NullBody_FallsBackToADF(t *testing.T) {
 
 	client := api.NewClient(server.URL, "test@example.com", "token")
 	page, err := getPageWithBodyFallback(context.Background(), client, "12345")
-	require.NoError(t, err)
-	assert.Equal(t, 2, callCount)
-	assert.True(t, hasADFContent(page))
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, 2, callCount)
+	testutil.True(t, hasADFContent(page))
 }
 
 func TestGetPageWithBodyFallback_BothEmpty(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"id": "12345",
@@ -119,13 +122,14 @@ func TestGetPageWithBodyFallback_BothEmpty(t *testing.T) {
 
 	client := api.NewClient(server.URL, "test@example.com", "token")
 	page, err := getPageWithBodyFallback(context.Background(), client, "12345")
-	require.NoError(t, err)
-	assert.False(t, hasStorageContent(page))
-	assert.False(t, hasADFContent(page))
+	testutil.RequireNoError(t, err)
+	testutil.False(t, hasStorageContent(page))
+	testutil.False(t, hasADFContent(page))
 }
 
 func TestGetPageWithBodyFallback_GetPageError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message": "Page not found"}`))
 	}))
@@ -133,10 +137,11 @@ func TestGetPageWithBodyFallback_GetPageError(t *testing.T) {
 
 	client := api.NewClient(server.URL, "test@example.com", "token")
 	_, err := getPageWithBodyFallback(context.Background(), client, "99999")
-	require.Error(t, err)
+	testutil.RequireError(t, err)
 }
 
 func TestGetPageWithBodyFallback_ADFFallbackFails_GracefulDegradation(t *testing.T) {
+	t.Parallel()
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
@@ -160,12 +165,13 @@ func TestGetPageWithBodyFallback_ADFFallbackFails_GracefulDegradation(t *testing
 
 	client := api.NewClient(server.URL, "test@example.com", "token")
 	page, err := getPageWithBodyFallback(context.Background(), client, "12345")
-	require.NoError(t, err, "should not error even if ADF fallback fails")
-	assert.False(t, hasStorageContent(page))
-	assert.False(t, hasADFContent(page))
+	testutil.RequireNoError(t, err)
+	testutil.False(t, hasStorageContent(page))
+	testutil.False(t, hasADFContent(page))
 }
 
 func TestHasStorageContent(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		page     *api.Page
@@ -179,12 +185,14 @@ func TestHasStorageContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, hasStorageContent(tt.page))
+			t.Parallel()
+			testutil.Equal(t, tt.expected, hasStorageContent(tt.page))
 		})
 	}
 }
 
 func TestHasADFContent(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		page     *api.Page
@@ -198,7 +206,8 @@ func TestHasADFContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, hasADFContent(tt.page))
+			t.Parallel()
+			testutil.Equal(t, tt.expected, hasADFContent(tt.page))
 		})
 	}
 }

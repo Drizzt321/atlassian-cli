@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
@@ -7,21 +7,21 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 )
 
 func TestClient_CreateSpace(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "/api/v2/spaces", r.URL.Path)
+		testutil.Equal(t, "POST", r.Method)
+		testutil.Equal(t, "/api/v2/spaces", r.URL.Path)
 
 		var req CreateSpaceRequest
 		err := json.NewDecoder(r.Body).Decode(&req)
-		require.NoError(t, err)
-		assert.Equal(t, "TEST", req.Key)
-		assert.Equal(t, "Test Space", req.Name)
-		assert.Equal(t, "global", req.Type)
+		testutil.RequireNoError(t, err)
+		testutil.Equal(t, "TEST", req.Key)
+		testutil.Equal(t, "Test Space", req.Name)
+		testutil.Equal(t, "global", req.Type)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -42,21 +42,22 @@ func TestClient_CreateSpace(t *testing.T) {
 		Type: "global",
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, "123456", space.ID)
-	assert.Equal(t, "TEST", space.Key)
-	assert.Equal(t, "Test Space", space.Name)
-	assert.Equal(t, "global", space.Type)
-	assert.Equal(t, "/spaces/TEST", space.Links.WebUI)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "123456", space.ID)
+	testutil.Equal(t, "TEST", space.Key)
+	testutil.Equal(t, "Test Space", space.Name)
+	testutil.Equal(t, "global", space.Type)
+	testutil.Equal(t, "/spaces/TEST", space.Links.WebUI)
 }
 
 func TestClient_CreateSpace_WithDescription(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req CreateSpaceRequest
 		err := json.NewDecoder(r.Body).Decode(&req)
-		require.NoError(t, err)
-		assert.NotNil(t, req.Description)
-		assert.Equal(t, "A test space", req.Description.Plain.Value)
+		testutil.RequireNoError(t, err)
+		testutil.NotNil(t, req.Description)
+		testutil.Equal(t, "A test space", req.Description.Plain.Value)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -79,13 +80,14 @@ func TestClient_CreateSpace_WithDescription(t *testing.T) {
 		},
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, "TEST", space.Key)
-	assert.NotNil(t, space.Description)
-	assert.Equal(t, "A test space", space.Description.Plain.Value)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "TEST", space.Key)
+	testutil.NotNil(t, space.Description)
+	testutil.Equal(t, "A test space", space.Description.Plain.Value)
 }
 
 func TestClient_CreateSpace_Error(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"message": "Space key already exists"}`))
@@ -98,19 +100,20 @@ func TestClient_CreateSpace_Error(t *testing.T) {
 		Name: "Duplicate",
 	})
 
-	require.Error(t, err)
+	testutil.RequireError(t, err)
 }
 
 func TestClient_UpdateSpace(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "PUT", r.Method)
-		assert.Equal(t, "/rest/api/space/TEST", r.URL.Path)
+		testutil.Equal(t, "PUT", r.Method)
+		testutil.Equal(t, "/rest/api/space/TEST", r.URL.Path)
 
 		var req UpdateSpaceRequest
 		err := json.NewDecoder(r.Body).Decode(&req)
-		require.NoError(t, err)
-		assert.Equal(t, "TEST", req.Key)
-		assert.Equal(t, "Updated Name", req.Name)
+		testutil.RequireNoError(t, err)
+		testutil.Equal(t, "TEST", req.Key)
+		testutil.Equal(t, "Updated Name", req.Name)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -130,23 +133,24 @@ func TestClient_UpdateSpace(t *testing.T) {
 		Name: "Updated Name",
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, "123456", space.ID)
-	assert.Equal(t, "TEST", space.Key)
-	assert.Equal(t, "Updated Name", space.Name)
-	assert.Equal(t, "global", space.Type)
-	assert.NotNil(t, space.Description)
-	assert.Equal(t, "Description", space.Description.Plain.Value)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "123456", space.ID)
+	testutil.Equal(t, "TEST", space.Key)
+	testutil.Equal(t, "Updated Name", space.Name)
+	testutil.Equal(t, "global", space.Type)
+	testutil.NotNil(t, space.Description)
+	testutil.Equal(t, "Description", space.Description.Plain.Value)
 }
 
 func TestClient_UpdateSpace_WithDescription(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req UpdateSpaceRequest
 		err := json.NewDecoder(r.Body).Decode(&req)
-		require.NoError(t, err)
-		assert.NotNil(t, req.Description)
-		assert.Equal(t, "New description", req.Description.Plain.Value)
-		assert.Equal(t, "plain", req.Description.Plain.Representation)
+		testutil.RequireNoError(t, err)
+		testutil.NotNil(t, req.Description)
+		testutil.Equal(t, "New description", req.Description.Plain.Value)
+		testutil.Equal(t, "plain", req.Description.Plain.Representation)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -172,11 +176,12 @@ func TestClient_UpdateSpace_WithDescription(t *testing.T) {
 		},
 	})
 
-	require.NoError(t, err)
-	assert.Equal(t, "New description", space.Description.Plain.Value)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "New description", space.Description.Plain.Value)
 }
 
 func TestClient_UpdateSpace_NotFound(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message": "Space not found"}`))
@@ -189,10 +194,11 @@ func TestClient_UpdateSpace_NotFound(t *testing.T) {
 		Name: "Updated",
 	})
 
-	require.Error(t, err)
+	testutil.RequireError(t, err)
 }
 
 func TestClient_UpdateSpace_NoDescription(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -212,14 +218,15 @@ func TestClient_UpdateSpace_NoDescription(t *testing.T) {
 		Name: "Test Space",
 	})
 
-	require.NoError(t, err)
-	assert.Nil(t, space.Description)
+	testutil.RequireNoError(t, err)
+	testutil.Nil(t, space.Description)
 }
 
 func TestClient_DeleteSpace(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "DELETE", r.Method)
-		assert.Equal(t, "/rest/api/space/TEST", r.URL.Path)
+		testutil.Equal(t, "DELETE", r.Method)
+		testutil.Equal(t, "/rest/api/space/TEST", r.URL.Path)
 
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -228,10 +235,11 @@ func TestClient_DeleteSpace(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	err := client.DeleteSpace(context.Background(), "TEST")
 
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }
 
 func TestClient_DeleteSpace_NotFound(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message": "Space not found"}`))
@@ -241,10 +249,11 @@ func TestClient_DeleteSpace_NotFound(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	err := client.DeleteSpace(context.Background(), "NOPE")
 
-	require.Error(t, err)
+	testutil.RequireError(t, err)
 }
 
 func TestV1SpaceResponse_ToSpace(t *testing.T) {
+	t.Parallel()
 	response := &v1SpaceResponse{
 		ID:   123456,
 		Key:  "TEST",
@@ -257,16 +266,17 @@ func TestV1SpaceResponse_ToSpace(t *testing.T) {
 
 	space := response.toSpace()
 
-	assert.Equal(t, "123456", space.ID)
-	assert.Equal(t, "TEST", space.Key)
-	assert.Equal(t, "Test Space", space.Name)
-	assert.Equal(t, "global", space.Type)
-	assert.Equal(t, "/spaces/TEST", space.Links.WebUI)
-	assert.NotNil(t, space.Description)
-	assert.Equal(t, "A test space", space.Description.Plain.Value)
+	testutil.Equal(t, "123456", space.ID)
+	testutil.Equal(t, "TEST", space.Key)
+	testutil.Equal(t, "Test Space", space.Name)
+	testutil.Equal(t, "global", space.Type)
+	testutil.Equal(t, "/spaces/TEST", space.Links.WebUI)
+	testutil.NotNil(t, space.Description)
+	testutil.Equal(t, "A test space", space.Description.Plain.Value)
 }
 
 func TestV1SpaceResponse_ToSpace_EmptyDescription(t *testing.T) {
+	t.Parallel()
 	response := &v1SpaceResponse{
 		ID:   123456,
 		Key:  "TEST",
@@ -276,5 +286,5 @@ func TestV1SpaceResponse_ToSpace_EmptyDescription(t *testing.T) {
 
 	space := response.toSpace()
 
-	assert.Nil(t, space.Description)
+	testutil.Nil(t, space.Description)
 }

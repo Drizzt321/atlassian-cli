@@ -1,6 +1,9 @@
+// Package users provides CLI commands for searching Jira users.
 package users
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
@@ -40,7 +43,7 @@ and other user attributes. Use this to find account IDs for issue assignment.`,
   jtk users search john --max 5`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSearch(opts, args[0], maxResults)
+			return runSearch(cmd.Context(), opts, args[0], maxResults)
 		},
 	}
 
@@ -49,7 +52,7 @@ and other user attributes. Use this to find account IDs for issue assignment.`,
 	return cmd
 }
 
-func runSearch(opts *root.Options, query string, maxResults int) error {
+func runSearch(ctx context.Context, opts *root.Options, query string, maxResults int) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -57,7 +60,7 @@ func runSearch(opts *root.Options, query string, maxResults int) error {
 		return err
 	}
 
-	users, err := client.SearchUsers(query, maxResults)
+	users, err := client.SearchUsers(ctx, query, maxResults)
 	if err != nil {
 		return err
 	}
@@ -72,7 +75,7 @@ func runSearch(opts *root.Options, query string, maxResults int) error {
 	}
 
 	headers := []string{"ACCOUNT_ID", "NAME", "EMAIL", "ACTIVE"}
-	var rows [][]string
+	rows := make([][]string, 0, len(users))
 
 	for _, u := range users {
 		active := "yes"

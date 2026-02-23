@@ -30,8 +30,8 @@ func newDeleteCmd(rootOpts *root.Options) *cobra.Command {
   # Delete without confirmation
   cfl space delete TEST --force`,
 		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			return runDelete(args[0], opts)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDelete(cmd.Context(), args[0], opts)
 		},
 	}
 
@@ -40,7 +40,7 @@ func newDeleteCmd(rootOpts *root.Options) *cobra.Command {
 	return cmd
 }
 
-func runDelete(spaceKey string, opts *deleteOptions) error {
+func runDelete(ctx context.Context, spaceKey string, opts *deleteOptions) error {
 	if err := view.ValidateFormat(opts.Output); err != nil {
 		return err
 	}
@@ -50,29 +50,29 @@ func runDelete(spaceKey string, opts *deleteOptions) error {
 		return err
 	}
 
-	space, err := client.GetSpaceByKey(context.Background(), spaceKey)
+	space, err := client.GetSpaceByKey(ctx, spaceKey)
 	if err != nil {
-		return fmt.Errorf("failed to get space: %w", err)
+		return fmt.Errorf("getting space: %w", err)
 	}
 
 	v := opts.View()
 
 	if !opts.force {
-		fmt.Printf("About to delete space: %s (%s)\n", space.Name, space.Key)
-		fmt.Print("Are you sure? [y/N]: ")
+		_, _ = fmt.Fprintf(opts.Stderr, "About to delete space: %s (%s)\n", space.Name, space.Key)
+		_, _ = fmt.Fprint(opts.Stderr, "Are you sure? [y/N]: ")
 
 		confirmed, err := prompt.Confirm(opts.Stdin)
 		if err != nil {
-			return fmt.Errorf("failed to read confirmation: %w", err)
+			return fmt.Errorf("reading confirmation: %w", err)
 		}
 		if !confirmed {
-			fmt.Println("Deletion cancelled.")
+			_, _ = fmt.Fprintln(opts.Stderr, "Deletion cancelled.")
 			return nil
 		}
 	}
 
-	if err := client.DeleteSpace(context.Background(), spaceKey); err != nil {
-		return fmt.Errorf("failed to delete space: %w", err)
+	if err := client.DeleteSpace(ctx, spaceKey); err != nil {
+		return fmt.Errorf("deleting space: %w", err)
 	}
 
 	if opts.Output == "json" {

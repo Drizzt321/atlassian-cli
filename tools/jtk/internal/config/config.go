@@ -1,3 +1,4 @@
+// Package config manages the jtk configuration file.
 package config
 
 import (
@@ -30,7 +31,7 @@ type Config struct {
 func configPath() (string, error) {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get config directory: %w", err)
+		return "", fmt.Errorf("getting config directory: %w", err)
 	}
 	return filepath.Join(configDir, configDirName, configFileName), nil
 }
@@ -42,17 +43,17 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // CLI tool reading its own config file
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return &Config{}, nil
 		}
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
 
 	return &cfg, nil
@@ -67,16 +68,16 @@ func Save(cfg *Config) error {
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, configDirMode); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+		return fmt.Errorf("creating config directory: %w", err)
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return fmt.Errorf("marshaling config: %w", err)
 	}
 
 	if err := os.WriteFile(path, data, configFileMode); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+		return fmt.Errorf("writing config file: %w", err)
 	}
 
 	return nil
@@ -90,7 +91,7 @@ func Clear() error {
 	}
 
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("failed to remove config file: %w", err)
+		return fmt.Errorf("removing config file: %w", err)
 	}
 
 	return nil

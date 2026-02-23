@@ -69,7 +69,7 @@ func New(baseURL, email, apiToken string, opts *Options) *Client {
 // or an absolute URL (e.g., "https://example.com/api/resource").
 // If body is not nil, it will be JSON-encoded.
 // Returns the response body or an error (which may be an *errors.APIError).
-func (c *Client) Do(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
+func (c *Client) Do(ctx context.Context, method, path string, body any) ([]byte, error) {
 	var url string
 
 	// Check if path is an absolute URL
@@ -87,14 +87,14 @@ func (c *Client) Do(ctx context.Context, method, path string, body interface{}) 
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+			return nil, fmt.Errorf("marshaling request body: %w", err)
 		}
 		reqBody = bytes.NewReader(jsonBody)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
 	// Set headers
@@ -114,7 +114,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body interface{}) 
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("reading response body: %w", err)
 	}
 
 	if c.Verbose {
@@ -135,12 +135,12 @@ func (c *Client) Get(ctx context.Context, path string) ([]byte, error) {
 }
 
 // Post performs a POST request with a JSON body.
-func (c *Client) Post(ctx context.Context, path string, body interface{}) ([]byte, error) {
+func (c *Client) Post(ctx context.Context, path string, body any) ([]byte, error) {
 	return c.Do(ctx, http.MethodPost, path, body)
 }
 
 // Put performs a PUT request with a JSON body.
-func (c *Client) Put(ctx context.Context, path string, body interface{}) ([]byte, error) {
+func (c *Client) Put(ctx context.Context, path string, body any) ([]byte, error) {
 	return c.Do(ctx, http.MethodPut, path, body)
 }
 

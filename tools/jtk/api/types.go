@@ -1,7 +1,8 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/open-cli-collective/atlassian-go/adf"
@@ -33,7 +34,7 @@ type IssueFields struct {
 	Parent      *Issue       `json:"parent,omitempty"`
 
 	// CustomFields holds any fields not mapped to struct fields (e.g., customfield_10001)
-	CustomFields map[string]interface{} `json:"-"`
+	CustomFields map[string]any `json:"-"`
 }
 
 // knownFieldKeys lists JSON keys for typed struct fields
@@ -55,20 +56,20 @@ func (f *IssueFields) UnmarshalJSON(data []byte) error {
 		Alias: (*Alias)(f),
 	}
 	if err := json.Unmarshal(data, aux); err != nil {
-		return err
+		return fmt.Errorf("unmarshaling issue fields: %w", err)
 	}
 
 	// Then unmarshal into a map to capture all fields
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
+		return fmt.Errorf("unmarshaling issue fields (raw): %w", err)
 	}
 
 	// Extract custom fields (those not in knownFieldKeys)
-	f.CustomFields = make(map[string]interface{})
+	f.CustomFields = make(map[string]any)
 	for key, value := range raw {
 		if !knownFieldKeys[key] {
-			var v interface{}
+			var v any
 			if err := json.Unmarshal(value, &v); err == nil {
 				f.CustomFields[key] = v
 			}
@@ -81,7 +82,7 @@ func (f *IssueFields) UnmarshalJSON(data []byte) error {
 // MarshalJSON custom marshaler to include custom fields
 func (f IssueFields) MarshalJSON() ([]byte, error) {
 	// Start with typed fields
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	result["summary"] = f.Summary
 	if f.Description != nil {
@@ -132,9 +133,13 @@ func (f IssueFields) MarshalJSON() ([]byte, error) {
 	return json.Marshal(result)
 }
 
-// Type aliases for backward compatibility with the shared adf package.
+// ADFDocument is a type alias for the shared ADF Document type.
 type ADFDocument = adf.Document
+
+// ADFNode is a type alias for the shared ADF Node type.
 type ADFNode = adf.Node
+
+// ADFMark is a type alias for the shared ADF Mark type.
 type ADFMark = adf.Mark
 
 // NewADFDocument creates an ADF document from markdown text.
@@ -362,19 +367,19 @@ type CommentsResponse struct {
 
 // CreateIssueRequest represents a request to create an issue
 type CreateIssueRequest struct {
-	Fields map[string]interface{} `json:"fields"`
+	Fields map[string]any `json:"fields"`
 }
 
 // UpdateIssueRequest represents a request to update an issue
 type UpdateIssueRequest struct {
-	Fields map[string]interface{} `json:"fields,omitempty"`
-	Update map[string]interface{} `json:"update,omitempty"`
+	Fields map[string]any `json:"fields,omitempty"`
+	Update map[string]any `json:"update,omitempty"`
 }
 
 // TransitionRequest represents a request to transition an issue
 type TransitionRequest struct {
-	Transition TransitionID           `json:"transition"`
-	Fields     map[string]interface{} `json:"fields,omitempty"`
+	Transition TransitionID   `json:"transition"`
+	Fields     map[string]any `json:"fields,omitempty"`
 }
 
 // TransitionID wraps a transition ID

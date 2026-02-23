@@ -1,7 +1,9 @@
-// Package api provides the Confluence Cloud REST API client.
-package api
+package api //nolint:revive // package name is intentional
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // PaginatedResponse wraps paginated API responses.
 type PaginatedResponse[T any] struct {
@@ -126,7 +128,7 @@ func (t *Time) UnmarshalJSON(data []byte) error {
 		// Try alternative format
 		parsed, err = time.Parse("2006-01-02T15:04:05.000Z", s)
 		if err != nil {
-			return err
+			return fmt.Errorf("parsing time %q: %w", s, err)
 		}
 	}
 

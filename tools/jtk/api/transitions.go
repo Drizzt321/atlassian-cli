@@ -1,6 +1,7 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -8,13 +9,13 @@ import (
 )
 
 // GetTransitions returns available transitions for an issue
-func (c *Client) GetTransitions(issueKey string) ([]Transition, error) {
-	return c.GetTransitionsWithFields(issueKey, false)
+func (c *Client) GetTransitions(ctx context.Context, issueKey string) ([]Transition, error) {
+	return c.GetTransitionsWithFields(ctx, issueKey, false)
 }
 
 // GetTransitionsWithFields returns available transitions for an issue,
 // optionally including field metadata (required fields, allowed values)
-func (c *Client) GetTransitionsWithFields(issueKey string, includeFields bool) ([]Transition, error) {
+func (c *Client) GetTransitionsWithFields(ctx context.Context, issueKey string, includeFields bool) ([]Transition, error) {
 	if issueKey == "" {
 		return nil, ErrIssueKeyRequired
 	}
@@ -24,21 +25,21 @@ func (c *Client) GetTransitionsWithFields(issueKey string, includeFields bool) (
 		urlStr += "?expand=transitions.fields"
 	}
 
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching transitions: %w", err)
 	}
 
 	var result TransitionsResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse transitions: %w", err)
+		return nil, fmt.Errorf("parsing transitions: %w", err)
 	}
 
 	return result.Transitions, nil
 }
 
 // DoTransition performs a transition on an issue with optional fields
-func (c *Client) DoTransition(issueKey, transitionID string, fields map[string]interface{}) error {
+func (c *Client) DoTransition(ctx context.Context, issueKey, transitionID string, fields map[string]any) error {
 	if issueKey == "" {
 		return ErrIssueKeyRequired
 	}
@@ -49,8 +50,11 @@ func (c *Client) DoTransition(issueKey, transitionID string, fields map[string]i
 		Fields:     fields,
 	}
 
-	_, err := c.post(urlStr, req)
-	return err
+	_, err := c.Post(ctx, urlStr, req)
+	if err != nil {
+		return fmt.Errorf("performing transition: %w", err)
+	}
+	return nil
 }
 
 // FindTransitionByName finds a transition by name (case-insensitive)

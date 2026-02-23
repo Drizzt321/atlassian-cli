@@ -1,5 +1,5 @@
 // Package api provides a client for the Confluence REST API.
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
@@ -50,12 +50,12 @@ func (c *Client) GetCurrentUser(ctx context.Context) (*User, error) {
 
 	body, err := c.Get(ctx, url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current user: %w", err)
+		return nil, fmt.Errorf("getting current user: %w", err)
 	}
 
 	var user User
 	if err := json.Unmarshal(body, &user); err != nil {
-		return nil, fmt.Errorf("failed to decode user response: %w", err)
+		return nil, fmt.Errorf("decoding user response: %w", err)
 	}
 
 	return &user, nil

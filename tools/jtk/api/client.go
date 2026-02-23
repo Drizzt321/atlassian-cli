@@ -1,15 +1,16 @@
-package api
+// Package api provides a client for the Jira REST API.
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	neturl "net/url"
 	"sync"
 
 	"github.com/open-cli-collective/atlassian-go/client"
-	"github.com/open-cli-collective/atlassian-go/errors"
 	"github.com/open-cli-collective/atlassian-go/url"
 )
 
@@ -36,7 +37,7 @@ type ClientConfig struct {
 // New creates a new Jira API client from config
 func New(cfg ClientConfig) (*Client, error) {
 	if cfg.URL == "" {
-		return nil, errors.ErrNotFound // Use generic error for now; specific errors defined below
+		return nil, ErrURLRequired
 	}
 	if cfg.Email == "" {
 		return nil, ErrEmailRequired
@@ -64,30 +65,10 @@ func New(cfg ClientConfig) (*Client, error) {
 
 // Validation errors
 var (
-	ErrURLRequired      = fmt.Errorf("URL is required")
-	ErrEmailRequired    = fmt.Errorf("email is required")
-	ErrAPITokenRequired = fmt.Errorf("API token is required")
+	ErrURLRequired      = stderrors.New("URL is required")
+	ErrEmailRequired    = stderrors.New("email is required")
+	ErrAPITokenRequired = stderrors.New("API token is required")
 )
-
-// get performs a GET request to the specified URL
-func (c *Client) get(urlStr string) ([]byte, error) {
-	return c.Get(context.Background(), urlStr)
-}
-
-// post performs a POST request to the specified URL
-func (c *Client) post(urlStr string, body interface{}) ([]byte, error) {
-	return c.Post(context.Background(), urlStr, body)
-}
-
-// put performs a PUT request to the specified URL
-func (c *Client) put(urlStr string, body interface{}) ([]byte, error) {
-	return c.Put(context.Background(), urlStr, body)
-}
-
-// delete performs a DELETE request to the specified URL
-func (c *Client) delete(urlStr string) ([]byte, error) {
-	return c.Delete(context.Background(), urlStr)
-}
 
 // buildURL builds a URL with query parameters
 func buildURL(base string, params map[string]string) string {
@@ -127,23 +108,23 @@ type tenantInfo struct {
 }
 
 // GetCloudID returns the Atlassian cloud ID for this site, fetching it on first call.
-func (c *Client) GetCloudID() (string, error) {
+func (c *Client) GetCloudID(ctx context.Context) (string, error) {
 	c.cloudOnce.Do(func() {
 		urlStr := fmt.Sprintf("%s/_edge/tenant_info", c.URL)
-		body, err := c.get(urlStr)
+		body, err := c.Get(ctx, urlStr)
 		if err != nil {
-			c.cloudErr = fmt.Errorf("failed to fetch cloud ID from %s: %w", urlStr, err)
+			c.cloudErr = fmt.Errorf("fetching cloud ID from %s: %w", urlStr, err)
 			return
 		}
 
 		var info tenantInfo
 		if err := json.Unmarshal(body, &info); err != nil {
-			c.cloudErr = fmt.Errorf("failed to parse tenant info: %w", err)
+			c.cloudErr = fmt.Errorf("parsing tenant info: %w", err)
 			return
 		}
 
 		if info.CloudID == "" {
-			c.cloudErr = fmt.Errorf("tenant info returned empty cloud ID")
+			c.cloudErr = stderrors.New("tenant info returned empty cloud ID")
 			return
 		}
 
@@ -154,8 +135,8 @@ func (c *Client) GetCloudID() (string, error) {
 }
 
 // AutomationBaseURL returns the base URL for the Jira Automation REST API.
-func (c *Client) AutomationBaseURL() (string, error) {
-	cloudID, err := c.GetCloudID()
+func (c *Client) AutomationBaseURL(ctx context.Context) (string, error) {
+	cloudID, err := c.GetCloudID(ctx)
 	if err != nil {
 		return "", err
 	}

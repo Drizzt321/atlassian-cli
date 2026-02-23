@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
@@ -8,19 +8,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 )
 
 func TestNewClient(t *testing.T) {
+	t.Parallel()
 	client := NewClient("https://example.atlassian.net/wiki", "user@example.com", "token123")
 
-	assert.NotNil(t, client)
-	assert.Equal(t, "https://example.atlassian.net/wiki", client.GetBaseURL())
-	assert.Contains(t, client.GetAuthHeader(), "Basic ")
+	testutil.NotNil(t, client)
+	testutil.Equal(t, "https://example.atlassian.net/wiki", client.GetBaseURL())
+	testutil.Contains(t, client.GetAuthHeader(), "Basic ")
 }
 
 func TestClient_AuthHeader(t *testing.T) {
+	t.Parallel()
 	var capturedAuth string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,17 +33,18 @@ func TestClient_AuthHeader(t *testing.T) {
 
 	client := NewClient(server.URL, "user@example.com", "mytoken")
 	_, err := client.Get(context.Background(), "/test")
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Verify Basic auth header
-	require.True(t, strings.HasPrefix(capturedAuth, "Basic "))
+	testutil.True(t, strings.HasPrefix(capturedAuth, "Basic "))
 	encoded := strings.TrimPrefix(capturedAuth, "Basic ")
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	require.NoError(t, err)
-	assert.Equal(t, "user@example.com:mytoken", string(decoded))
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "user@example.com:mytoken", string(decoded))
 }
 
 func TestClient_Headers(t *testing.T) {
+	t.Parallel()
 	var capturedHeaders http.Header
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,13 +56,14 @@ func TestClient_Headers(t *testing.T) {
 
 	client := NewClient(server.URL, "user@example.com", "mytoken")
 	_, err := client.Get(context.Background(), "/test")
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	assert.Equal(t, "application/json", capturedHeaders.Get("Accept"))
-	assert.Equal(t, "application/json", capturedHeaders.Get("Content-Type"))
+	testutil.Equal(t, "application/json", capturedHeaders.Get("Accept"))
+	testutil.Equal(t, "application/json", capturedHeaders.Get("Content-Type"))
 }
 
 func TestClient_ErrorResponse(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		statusCode     int
@@ -101,6 +104,7 @@ func TestClient_ErrorResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.statusCode)
 				_, _ = w.Write([]byte(tt.responseBody))
@@ -110,13 +114,14 @@ func TestClient_ErrorResponse(t *testing.T) {
 			client := NewClient(server.URL, "user@example.com", "token")
 			_, err := client.Get(context.Background(), "/test")
 
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.expectedErrMsg)
+			testutil.RequireError(t, err)
+			testutil.Contains(t, err.Error(), tt.expectedErrMsg)
 		})
 	}
 }
 
 func TestClient_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		// Slow response
 		<-r.Context().Done()
@@ -129,10 +134,11 @@ func TestClient_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	_, err := client.Get(ctx, "/test")
-	require.Error(t, err)
+	testutil.RequireError(t, err)
 }
 
 func TestClient_URLConstruction(t *testing.T) {
+	t.Parallel()
 	var capturedPath string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +160,7 @@ func TestClient_URLConstruction(t *testing.T) {
 
 	for _, tt := range tests {
 		_, err := client.Get(context.Background(), tt.inputPath)
-		require.NoError(t, err)
-		assert.Equal(t, tt.expectedPath, capturedPath)
+		testutil.RequireNoError(t, err)
+		testutil.Equal(t, tt.expectedPath, capturedPath)
 	}
 }

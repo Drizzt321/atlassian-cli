@@ -1,6 +1,8 @@
 package projects
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
@@ -26,7 +28,7 @@ func newUpdateCmd(opts *root.Options) *cobra.Command {
   jtk projects update MYPROJ --lead <account-id>`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUpdate(opts, args[0], name, description, lead)
+			return runUpdate(cmd.Context(), opts, args[0], name, description, lead)
 		},
 	}
 
@@ -37,7 +39,7 @@ func newUpdateCmd(opts *root.Options) *cobra.Command {
 	return cmd
 }
 
-func runUpdate(opts *root.Options, keyOrID, name, description, lead string) error {
+func runUpdate(ctx context.Context, opts *root.Options, keyOrID, name, description, lead string) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -51,7 +53,7 @@ func runUpdate(opts *root.Options, keyOrID, name, description, lead string) erro
 		LeadAccountID: lead,
 	}
 
-	project, err := client.UpdateProject(keyOrID, req)
+	project, err := client.UpdateProject(ctx, keyOrID, req)
 	if err != nil {
 		return err
 	}

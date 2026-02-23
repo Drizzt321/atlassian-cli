@@ -1,6 +1,7 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -8,26 +9,26 @@ import (
 )
 
 // GetFields returns all field definitions
-func (c *Client) GetFields() ([]Field, error) {
+func (c *Client) GetFields(ctx context.Context) ([]Field, error) {
 	urlStr := fmt.Sprintf("%s/field", c.BaseURL)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching fields: %w", err)
 	}
 
 	var fields []Field
 	if err := json.Unmarshal(body, &fields); err != nil {
-		return nil, fmt.Errorf("failed to parse fields: %w", err)
+		return nil, fmt.Errorf("parsing fields: %w", err)
 	}
 
 	return fields, nil
 }
 
 // GetCustomFields returns only custom field definitions
-func (c *Client) GetCustomFields() ([]Field, error) {
-	fields, err := c.GetFields()
+func (c *Client) GetCustomFields(ctx context.Context) ([]Field, error) {
+	fields, err := c.GetFields(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting custom fields: %w", err)
 	}
 
 	var customFields []Field
@@ -82,7 +83,7 @@ func ResolveFieldID(fields []Field, nameOrID string) (string, error) {
 //   - number fields: converts string to float64
 //   - issuelink fields (e.g., parent): wraps value as {"key": "..."} or {"id": "..."}
 //   - textarea custom fields: converts to ADF document
-func FormatFieldValue(field *Field, value string) interface{} {
+func FormatFieldValue(field *Field, value string) any {
 	if field == nil {
 		return value
 	}
@@ -146,18 +147,18 @@ type FieldOptionValue struct {
 }
 
 // GetFieldOptions returns allowed values for a custom field
-func (c *Client) GetFieldOptions(fieldID string) ([]FieldOptionValue, error) {
+func (c *Client) GetFieldOptions(ctx context.Context, fieldID string) ([]FieldOptionValue, error) {
 	if fieldID == "" {
-		return nil, fmt.Errorf("field ID is required")
+		return nil, ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/context/defaultValue", c.BaseURL, fieldID)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
 		urlStr = fmt.Sprintf("%s/field/%s/option", c.BaseURL, fieldID)
-		body, err = c.get(urlStr)
+		body, err = c.Get(ctx, urlStr)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("fetching field options: %w", err)
 		}
 	}
 
@@ -165,7 +166,7 @@ func (c *Client) GetFieldOptions(fieldID string) ([]FieldOptionValue, error) {
 	if err := json.Unmarshal(body, &result); err != nil {
 		var options []FieldOptionValue
 		if err2 := json.Unmarshal(body, &options); err2 != nil {
-			return nil, fmt.Errorf("failed to parse field options: %w", err)
+			return nil, fmt.Errorf("parsing field options: %w", err)
 		}
 		return options, nil
 	}
@@ -174,30 +175,30 @@ func (c *Client) GetFieldOptions(fieldID string) ([]FieldOptionValue, error) {
 }
 
 // GetFieldOptionsFromEditMeta returns allowed values for a field from issue edit metadata
-func (c *Client) GetFieldOptionsFromEditMeta(issueKey, fieldID string) ([]FieldOptionValue, error) {
-	meta, err := c.GetIssueEditMeta(issueKey)
+func (c *Client) GetFieldOptionsFromEditMeta(ctx context.Context, issueKey, fieldID string) ([]FieldOptionValue, error) {
+	meta, err := c.GetIssueEditMeta(ctx, issueKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting field options from edit metadata for %s: %w", issueKey, err)
 	}
 
-	fieldsData, ok := meta["fields"].(map[string]interface{})
+	fieldsData, ok := meta["fields"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("no fields found in edit metadata")
 	}
 
-	fieldData, ok := fieldsData[fieldID].(map[string]interface{})
+	fieldData, ok := fieldsData[fieldID].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("field %s not found in edit metadata", fieldID)
 	}
 
-	allowedValues, ok := fieldData["allowedValues"].([]interface{})
+	allowedValues, ok := fieldData["allowedValues"].([]any)
 	if !ok {
 		return nil, fmt.Errorf("no allowed values found for field %s", fieldID)
 	}
 
 	var options []FieldOptionValue
 	for _, av := range allowedValues {
-		if opt, ok := av.(map[string]interface{}); ok {
+		if opt, ok := av.(map[string]any); ok {
 			option := FieldOptionValue{}
 			if id, ok := opt["id"].(string); ok {
 				option.ID = id

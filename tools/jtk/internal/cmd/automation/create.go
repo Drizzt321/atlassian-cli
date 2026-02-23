@@ -1,6 +1,7 @@
 package automation
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -31,8 +32,8 @@ the exported JSON are ignored — the new rule gets its own identifiers.
 New rules are created in DISABLED state by default.`,
 		Example: `  jtk automation create --file rule.json
   jtk auto create -f new-rule.json`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCreate(opts, filePath)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runCreate(cmd.Context(), opts, filePath)
 		},
 	}
 
@@ -42,14 +43,14 @@ New rules are created in DISABLED state by default.`,
 	return cmd
 }
 
-func runCreate(opts *root.Options, filePath string) error {
+func runCreate(ctx context.Context, opts *root.Options, filePath string) error {
 	v := opts.View()
 
 	// Read and validate file before creating the API client so we fail
 	// fast on bad input without needing network access.
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // CLI tool reads user-provided file paths
 	if err != nil {
-		return fmt.Errorf("failed to read file %s: %w", filePath, err)
+		return fmt.Errorf("reading file %s: %w", filePath, err)
 	}
 
 	if !json.Valid(data) {
@@ -58,16 +59,16 @@ func runCreate(opts *root.Options, filePath string) error {
 
 	// Strip server-assigned fields that would cause conflicts on create.
 	// The API rejects requests containing a UUID that already exists.
-	var ruleMap map[string]interface{}
+	var ruleMap map[string]any
 	if err := json.Unmarshal(data, &ruleMap); err != nil {
-		return fmt.Errorf("failed to parse rule JSON: %w", err)
+		return fmt.Errorf("parsing rule JSON: %w", err)
 	}
 	for _, key := range []string{"uuid", "id", "ruleKey", "created", "updated"} {
 		delete(ruleMap, key)
 	}
 	data, err = json.Marshal(ruleMap)
 	if err != nil {
-		return fmt.Errorf("failed to re-encode rule JSON: %w", err)
+		return fmt.Errorf("re-encoding rule JSON: %w", err)
 	}
 
 	client, err := opts.APIClient()
@@ -75,7 +76,7 @@ func runCreate(opts *root.Options, filePath string) error {
 		return err
 	}
 
-	respBody, err := client.CreateAutomationRule(json.RawMessage(data))
+	respBody, err := client.CreateAutomationRule(ctx, json.RawMessage(data))
 	if err != nil {
 		return err
 	}

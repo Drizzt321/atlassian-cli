@@ -1,6 +1,7 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -8,7 +9,7 @@ import (
 )
 
 // GetComments returns comments for an issue
-func (c *Client) GetComments(issueKey string, startAt, maxResults int) (*CommentsResponse, error) {
+func (c *Client) GetComments(ctx context.Context, issueKey string, startAt, maxResults int) (*CommentsResponse, error) {
 	if issueKey == "" {
 		return nil, ErrIssueKeyRequired
 	}
@@ -22,21 +23,21 @@ func (c *Client) GetComments(issueKey string, startAt, maxResults int) (*Comment
 	}
 
 	urlStr := buildURL(fmt.Sprintf("%s/issue/%s/comment", c.BaseURL, url.PathEscape(issueKey)), params)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching comments: %w", err)
 	}
 
 	var result CommentsResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse comments: %w", err)
+		return nil, fmt.Errorf("parsing comments: %w", err)
 	}
 
 	return &result, nil
 }
 
 // AddComment adds a comment to an issue
-func (c *Client) AddComment(issueKey, commentBody string) (*Comment, error) {
+func (c *Client) AddComment(ctx context.Context, issueKey, commentBody string) (*Comment, error) {
 	if issueKey == "" {
 		return nil, ErrIssueKeyRequired
 	}
@@ -46,29 +47,32 @@ func (c *Client) AddComment(issueKey, commentBody string) (*Comment, error) {
 		Body: NewADFDocument(commentBody),
 	}
 
-	body, err := c.post(urlStr, req)
+	body, err := c.Post(ctx, urlStr, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("adding comment: %w", err)
 	}
 
 	var comment Comment
 	if err := json.Unmarshal(body, &comment); err != nil {
-		return nil, fmt.Errorf("failed to parse comment: %w", err)
+		return nil, fmt.Errorf("parsing comment: %w", err)
 	}
 
 	return &comment, nil
 }
 
 // DeleteComment deletes a comment from an issue
-func (c *Client) DeleteComment(issueKey, commentID string) error {
+func (c *Client) DeleteComment(ctx context.Context, issueKey, commentID string) error {
 	if issueKey == "" {
 		return ErrIssueKeyRequired
 	}
 	if commentID == "" {
-		return fmt.Errorf("comment ID is required")
+		return ErrCommentIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/issue/%s/comment/%s", c.BaseURL, url.PathEscape(issueKey), url.PathEscape(commentID))
-	_, err := c.delete(urlStr)
-	return err
+	_, err := c.Delete(ctx, urlStr)
+	if err != nil {
+		return fmt.Errorf("deleting comment %s: %w", commentID, err)
+	}
+	return nil
 }

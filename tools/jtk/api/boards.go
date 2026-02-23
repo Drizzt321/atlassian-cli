@@ -1,13 +1,14 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 )
 
 // ListBoards returns boards, optionally filtered by project
-func (c *Client) ListBoards(projectKeyOrID string, startAt, maxResults int) (*BoardsResponse, error) {
+func (c *Client) ListBoards(ctx context.Context, projectKeyOrID string, startAt, maxResults int) (*BoardsResponse, error) {
 	params := map[string]string{}
 
 	if projectKeyOrID != "" {
@@ -21,30 +22,30 @@ func (c *Client) ListBoards(projectKeyOrID string, startAt, maxResults int) (*Bo
 	}
 
 	urlStr := buildURL(fmt.Sprintf("%s/board", c.AgileURL), params)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing boards: %w", err)
 	}
 
 	var result BoardsResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse boards: %w", err)
+		return nil, fmt.Errorf("parsing boards: %w", err)
 	}
 
 	return &result, nil
 }
 
 // GetBoard retrieves a board by ID
-func (c *Client) GetBoard(boardID int) (*Board, error) {
+func (c *Client) GetBoard(ctx context.Context, boardID int) (*Board, error) {
 	urlStr := fmt.Sprintf("%s/board/%d", c.AgileURL, boardID)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting board %d: %w", boardID, err)
 	}
 
 	var board Board
 	if err := json.Unmarshal(body, &board); err != nil {
-		return nil, fmt.Errorf("failed to parse board: %w", err)
+		return nil, fmt.Errorf("parsing board: %w", err)
 	}
 
 	return &board, nil

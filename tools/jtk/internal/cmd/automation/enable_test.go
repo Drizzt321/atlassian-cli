@@ -2,13 +2,13 @@ package automation
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
@@ -29,6 +29,7 @@ func newAutomationTestServer(t *testing.T, rule api.AutomationRule) *httptest.Se
 }
 
 func TestRunSetState_AlreadyEnabled(t *testing.T) {
+	t.Parallel()
 	rule := api.AutomationRule{
 		ID:    json.Number("42"),
 		Name:  "Test Rule",
@@ -43,7 +44,7 @@ func TestRunSetState_AlreadyEnabled(t *testing.T) {
 		Email:    "test@example.com",
 		APIToken: "token",
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout, stderr bytes.Buffer
 	opts := &root.Options{
@@ -53,12 +54,13 @@ func TestRunSetState_AlreadyEnabled(t *testing.T) {
 	}
 	opts.SetAPIClient(client)
 
-	err = runSetState(opts, "42", true)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "already ENABLED")
+	err = runSetState(context.Background(), opts, "42", true)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "already ENABLED")
 }
 
 func TestRunSetState_AlreadyDisabled(t *testing.T) {
+	t.Parallel()
 	rule := api.AutomationRule{
 		ID:    json.Number("42"),
 		Name:  "Test Rule",
@@ -73,7 +75,7 @@ func TestRunSetState_AlreadyDisabled(t *testing.T) {
 		Email:    "test@example.com",
 		APIToken: "token",
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout, stderr bytes.Buffer
 	opts := &root.Options{
@@ -83,12 +85,13 @@ func TestRunSetState_AlreadyDisabled(t *testing.T) {
 	}
 	opts.SetAPIClient(client)
 
-	err = runSetState(opts, "42", false)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "already DISABLED")
+	err = runSetState(context.Background(), opts, "42", false)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "already DISABLED")
 }
 
 func TestRunSetState_EnableDisabledRule(t *testing.T) {
+	t.Parallel()
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/_edge/tenant_info" {
@@ -120,7 +123,7 @@ func TestRunSetState_EnableDisabledRule(t *testing.T) {
 		Email:    "test@example.com",
 		APIToken: "token",
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout, stderr bytes.Buffer
 	opts := &root.Options{
@@ -130,9 +133,9 @@ func TestRunSetState_EnableDisabledRule(t *testing.T) {
 	}
 	opts.SetAPIClient(client)
 
-	err = runSetState(opts, "42", true)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "DISABLED")
-	assert.Contains(t, stdout.String(), "ENABLED")
-	assert.Equal(t, 2, requestCount) // GET + PUT
+	err = runSetState(context.Background(), opts, "42", true)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "DISABLED")
+	testutil.Contains(t, stdout.String(), "ENABLED")
+	testutil.Equal(t, requestCount, 2) // GET + PUT
 }

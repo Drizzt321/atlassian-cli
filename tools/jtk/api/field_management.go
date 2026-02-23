@@ -1,6 +1,7 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -80,58 +81,64 @@ type UpdateFieldContextOptionEntry struct {
 }
 
 // CreateField creates a new custom field
-func (c *Client) CreateField(req *CreateFieldRequest) (*Field, error) {
+func (c *Client) CreateField(ctx context.Context, req *CreateFieldRequest) (*Field, error) {
 	urlStr := fmt.Sprintf("%s/field", c.BaseURL)
-	body, err := c.post(urlStr, req)
+	body, err := c.Post(ctx, urlStr, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating field: %w", err)
 	}
 
 	var field Field
 	if err := json.Unmarshal(body, &field); err != nil {
-		return nil, fmt.Errorf("failed to parse created field: %w", err)
+		return nil, fmt.Errorf("parsing created field: %w", err)
 	}
 
 	return &field, nil
 }
 
 // TrashField moves a custom field to the trash (soft delete)
-func (c *Client) TrashField(fieldID string) error {
+func (c *Client) TrashField(ctx context.Context, fieldID string) error {
 	if fieldID == "" {
 		return ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/trash", c.BaseURL, url.PathEscape(fieldID))
-	_, err := c.post(urlStr, nil)
-	return err
+	_, err := c.Post(ctx, urlStr, nil)
+	if err != nil {
+		return fmt.Errorf("trashing field %s: %w", fieldID, err)
+	}
+	return nil
 }
 
 // RestoreField restores a custom field from the trash
-func (c *Client) RestoreField(fieldID string) error {
+func (c *Client) RestoreField(ctx context.Context, fieldID string) error {
 	if fieldID == "" {
 		return ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/restore", c.BaseURL, url.PathEscape(fieldID))
-	_, err := c.post(urlStr, nil)
-	return err
+	_, err := c.Post(ctx, urlStr, nil)
+	if err != nil {
+		return fmt.Errorf("restoring field %s: %w", fieldID, err)
+	}
+	return nil
 }
 
 // GetFieldContexts returns the contexts for a custom field
-func (c *Client) GetFieldContexts(fieldID string) (*FieldContextsResponse, error) {
+func (c *Client) GetFieldContexts(ctx context.Context, fieldID string) (*FieldContextsResponse, error) {
 	if fieldID == "" {
 		return nil, ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/context", c.BaseURL, url.PathEscape(fieldID))
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching field contexts: %w", err)
 	}
 
 	var result FieldContextsResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse field contexts: %w", err)
+		return nil, fmt.Errorf("parsing field contexts: %w", err)
 	}
 
 	return &result, nil
@@ -139,10 +146,10 @@ func (c *Client) GetFieldContexts(fieldID string) (*FieldContextsResponse, error
 
 // GetDefaultFieldContext returns the first context for a field.
 // Used when --context is omitted to auto-detect the default context.
-func (c *Client) GetDefaultFieldContext(fieldID string) (*FieldContext, error) {
-	result, err := c.GetFieldContexts(fieldID)
+func (c *Client) GetDefaultFieldContext(ctx context.Context, fieldID string) (*FieldContext, error) {
+	result, err := c.GetFieldContexts(ctx, fieldID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting default field context for %s: %w", fieldID, err)
 	}
 
 	if len(result.Values) == 0 {
@@ -153,103 +160,109 @@ func (c *Client) GetDefaultFieldContext(fieldID string) (*FieldContext, error) {
 }
 
 // CreateFieldContext creates a new context for a custom field
-func (c *Client) CreateFieldContext(fieldID string, req *CreateFieldContextRequest) (*FieldContext, error) {
+func (c *Client) CreateFieldContext(ctx context.Context, fieldID string, req *CreateFieldContextRequest) (*FieldContext, error) {
 	if fieldID == "" {
 		return nil, ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/context", c.BaseURL, url.PathEscape(fieldID))
-	body, err := c.post(urlStr, req)
+	body, err := c.Post(ctx, urlStr, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating field context: %w", err)
 	}
 
 	var result FieldContext
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse created field context: %w", err)
+		return nil, fmt.Errorf("parsing created field context: %w", err)
 	}
 
 	return &result, nil
 }
 
 // DeleteFieldContext deletes a field context
-func (c *Client) DeleteFieldContext(fieldID, contextID string) error {
+func (c *Client) DeleteFieldContext(ctx context.Context, fieldID, contextID string) error {
 	if fieldID == "" {
 		return ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/context/%s", c.BaseURL, url.PathEscape(fieldID), url.PathEscape(contextID))
-	_, err := c.delete(urlStr)
-	return err
+	_, err := c.Delete(ctx, urlStr)
+	if err != nil {
+		return fmt.Errorf("deleting field context: %w", err)
+	}
+	return nil
 }
 
 // GetFieldContextOptions returns the options for a field context
-func (c *Client) GetFieldContextOptions(fieldID, contextID string) (*FieldContextOptionsResponse, error) {
+func (c *Client) GetFieldContextOptions(ctx context.Context, fieldID, contextID string) (*FieldContextOptionsResponse, error) {
 	if fieldID == "" {
 		return nil, ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/context/%s/option", c.BaseURL, url.PathEscape(fieldID), url.PathEscape(contextID))
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching field context options: %w", err)
 	}
 
 	var result FieldContextOptionsResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse field context options: %w", err)
+		return nil, fmt.Errorf("parsing field context options: %w", err)
 	}
 
 	return &result, nil
 }
 
 // CreateFieldContextOptions creates new options in a field context
-func (c *Client) CreateFieldContextOptions(fieldID, contextID string, req *CreateFieldContextOptionsRequest) ([]FieldContextOption, error) {
+func (c *Client) CreateFieldContextOptions(ctx context.Context, fieldID, contextID string, req *CreateFieldContextOptionsRequest) ([]FieldContextOption, error) {
 	if fieldID == "" {
 		return nil, ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/context/%s/option", c.BaseURL, url.PathEscape(fieldID), url.PathEscape(contextID))
-	body, err := c.post(urlStr, req)
+	body, err := c.Post(ctx, urlStr, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating field context options: %w", err)
 	}
 
 	var result FieldContextOptionsResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse created field context options: %w", err)
+		return nil, fmt.Errorf("parsing created field context options: %w", err)
 	}
 
 	return result.Values, nil
 }
 
 // UpdateFieldContextOptions updates existing options in a field context
-func (c *Client) UpdateFieldContextOptions(fieldID, contextID string, req *UpdateFieldContextOptionsRequest) ([]FieldContextOption, error) {
+func (c *Client) UpdateFieldContextOptions(ctx context.Context, fieldID, contextID string, req *UpdateFieldContextOptionsRequest) ([]FieldContextOption, error) {
 	if fieldID == "" {
 		return nil, ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/context/%s/option", c.BaseURL, url.PathEscape(fieldID), url.PathEscape(contextID))
-	body, err := c.put(urlStr, req)
+	body, err := c.Put(ctx, urlStr, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("updating field context options: %w", err)
 	}
 
 	var result FieldContextOptionsResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse updated field context options: %w", err)
+		return nil, fmt.Errorf("parsing updated field context options: %w", err)
 	}
 
 	return result.Values, nil
 }
 
 // DeleteFieldContextOption deletes an option from a field context
-func (c *Client) DeleteFieldContextOption(fieldID, contextID, optionID string) error {
+func (c *Client) DeleteFieldContextOption(ctx context.Context, fieldID, contextID, optionID string) error {
 	if fieldID == "" {
 		return ErrFieldIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/field/%s/context/%s/option/%s", c.BaseURL, url.PathEscape(fieldID), url.PathEscape(contextID), url.PathEscape(optionID))
-	_, err := c.delete(urlStr)
-	return err
+	_, err := c.Delete(ctx, urlStr)
+	if err != nil {
+		return fmt.Errorf("deleting field context option: %w", err)
+	}
+	return nil
 }

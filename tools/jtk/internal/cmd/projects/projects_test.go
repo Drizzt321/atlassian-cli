@@ -2,47 +2,50 @@ package projects
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 )
 
 func TestRegister(t *testing.T) {
+	t.Parallel()
 	rootCmd, opts := root.NewCmd()
 	Register(rootCmd, opts)
 
 	cmd, _, err := rootCmd.Find([]string{"projects"})
-	require.NoError(t, err)
-	assert.Equal(t, "projects", cmd.Name())
-	assert.Equal(t, []string{"project", "proj", "p"}, cmd.Aliases)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, cmd.Name(), "projects")
+	testutil.Equal(t, cmd.Aliases, []string{"project", "proj", "p"})
 }
 
 func TestNewListCmd(t *testing.T) {
+	t.Parallel()
 	opts := &root.Options{}
 	cmd := newListCmd(opts)
 
-	assert.Equal(t, "list", cmd.Use)
-	assert.NotEmpty(t, cmd.Short)
+	testutil.Equal(t, cmd.Use, "list")
+	testutil.NotEmpty(t, cmd.Short)
 
 	queryFlag := cmd.Flags().Lookup("query")
-	require.NotNil(t, queryFlag)
-	assert.Equal(t, "", queryFlag.DefValue)
+	testutil.NotNil(t, queryFlag)
+	testutil.Equal(t, queryFlag.DefValue, "")
 
 	maxFlag := cmd.Flags().Lookup("max")
-	require.NotNil(t, maxFlag)
-	assert.Equal(t, "50", maxFlag.DefValue)
+	testutil.NotNil(t, maxFlag)
+	testutil.Equal(t, maxFlag.DefValue, "50")
 }
 
 func TestRunList_Table(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(api.ProjectSearchResponse{
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(api.ProjectSearchResponse{
 			Values: []api.ProjectDetail{
 				{Key: "TST", Name: "Test", ProjectTypeKey: "software", Lead: &api.User{DisplayName: "Lead"}},
 			},
@@ -53,21 +56,22 @@ func TestRunList_Table(t *testing.T) {
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runList(opts, "", 50)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "TST")
-	assert.Contains(t, stdout.String(), "Test")
+	err = runList(context.Background(), opts, "", 50)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "TST")
+	testutil.Contains(t, stdout.String(), "Test")
 }
 
 func TestRunList_JSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(api.ProjectSearchResponse{
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(api.ProjectSearchResponse{
 			Values: []api.ProjectDetail{
 				{Key: "TST", Name: "Test", ProjectTypeKey: "software"},
 			},
@@ -78,46 +82,49 @@ func TestRunList_JSON(t *testing.T) {
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "json", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runList(opts, "", 50)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), `"key"`)
-	assert.Contains(t, stdout.String(), "TST")
+	err = runList(context.Background(), opts, "", 50)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), `"key"`)
+	testutil.Contains(t, stdout.String(), "TST")
 }
 
 func TestRunList_Empty(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(api.ProjectSearchResponse{Values: []api.ProjectDetail{}, Total: 0, IsLast: true})
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(api.ProjectSearchResponse{Values: []api.ProjectDetail{}, Total: 0, IsLast: true})
 	}))
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runList(opts, "", 50)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "No projects found")
+	err = runList(context.Background(), opts, "", 50)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "No projects found")
 }
 
 func TestNewGetCmd(t *testing.T) {
+	t.Parallel()
 	opts := &root.Options{}
 	cmd := newGetCmd(opts)
 
-	assert.Equal(t, "get <project-key>", cmd.Use)
+	testutil.Equal(t, cmd.Use, "get <project-key>")
 }
 
 func TestRunGet_Table(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(api.ProjectDetail{
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(api.ProjectDetail{
 			ID:             json.Number("10001"),
 			Key:            "TST",
 			Name:           "Test",
@@ -128,40 +135,42 @@ func TestRunGet_Table(t *testing.T) {
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runGet(opts, "TST")
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "TST")
-	assert.Contains(t, stdout.String(), "Lead")
+	err = runGet(context.Background(), opts, "TST")
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "TST")
+	testutil.Contains(t, stdout.String(), "Lead")
 }
 
 func TestNewCreateCmd(t *testing.T) {
+	t.Parallel()
 	opts := &root.Options{}
 	cmd := newCreateCmd(opts)
 
-	assert.Equal(t, "create", cmd.Use)
+	testutil.Equal(t, cmd.Use, "create")
 
 	keyFlag := cmd.Flags().Lookup("key")
-	require.NotNil(t, keyFlag)
+	testutil.NotNil(t, keyFlag)
 
 	nameFlag := cmd.Flags().Lookup("name")
-	require.NotNil(t, nameFlag)
+	testutil.NotNil(t, nameFlag)
 
 	leadFlag := cmd.Flags().Lookup("lead")
-	require.NotNil(t, leadFlag)
+	testutil.NotNil(t, leadFlag)
 }
 
 func TestRunCreate(t *testing.T) {
+	t.Parallel()
 	// Jira's create endpoint returns an empty name, so the success message
 	// should use the input name, not the response name.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(api.ProjectDetail{
+		_ = json.NewEncoder(w).Encode(api.ProjectDetail{
 			ID:   json.Number("10001"),
 			Key:  "TST",
 			Name: "",
@@ -170,50 +179,52 @@ func TestRunCreate(t *testing.T) {
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runCreate(opts, "TST", "Test Project", "software", "abc123", "")
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "Created project TST")
-	assert.Contains(t, stdout.String(), "Test Project")
+	err = runCreate(context.Background(), opts, "TST", "Test Project", "software", "abc123", "")
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "Created project TST")
+	testutil.Contains(t, stdout.String(), "Test Project")
 }
 
 func TestNewDeleteCmd(t *testing.T) {
+	t.Parallel()
 	opts := &root.Options{}
 	cmd := newDeleteCmd(opts)
 
-	assert.Equal(t, "delete <project-key>", cmd.Use)
+	testutil.Equal(t, cmd.Use, "delete <project-key>")
 
 	forceFlag := cmd.Flags().Lookup("force")
-	require.NotNil(t, forceFlag)
-	assert.Equal(t, "false", forceFlag.DefValue)
+	testutil.NotNil(t, forceFlag)
+	testutil.Equal(t, forceFlag.DefValue, "false")
 }
 
 func TestRunDelete_Force(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runDelete(opts, "TST", true)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "Deleted project TST")
+	err = runDelete(context.Background(), opts, "TST", true)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "Deleted project TST")
 }
 
 func TestRunDelete_NoForce_Declined(t *testing.T) {
+	t.Parallel()
 	client, err := api.New(api.ClientConfig{URL: "https://test.atlassian.net", Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{
@@ -224,20 +235,21 @@ func TestRunDelete_NoForce_Declined(t *testing.T) {
 	}
 	opts.SetAPIClient(client)
 
-	err = runDelete(opts, "TST", false)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "Deletion cancelled")
+	err = runDelete(context.Background(), opts, "TST", false)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "Deletion cancelled")
 }
 
 func TestRunDelete_NoForce_Accepted(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodDelete, r.Method)
+		testutil.Equal(t, r.Method, http.MethodDelete)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{
@@ -248,15 +260,16 @@ func TestRunDelete_NoForce_Accepted(t *testing.T) {
 	}
 	opts.SetAPIClient(client)
 
-	err = runDelete(opts, "TST", false)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "Deleted project TST")
+	err = runDelete(context.Background(), opts, "TST", false)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "Deleted project TST")
 }
 
 func TestRunUpdate(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPut, r.Method)
-		json.NewEncoder(w).Encode(api.ProjectDetail{
+		testutil.Equal(t, r.Method, http.MethodPut)
+		_ = json.NewEncoder(w).Encode(api.ProjectDetail{
 			ID:   json.Number("10001"),
 			Key:  "TST",
 			Name: "Updated Name",
@@ -265,20 +278,21 @@ func TestRunUpdate(t *testing.T) {
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runUpdate(opts, "TST", "Updated Name", "", "")
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "Updated project TST")
+	err = runUpdate(context.Background(), opts, "TST", "Updated Name", "", "")
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "Updated project TST")
 }
 
 func TestRunRestore(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(api.ProjectDetail{
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(api.ProjectDetail{
 			ID:   json.Number("10001"),
 			Key:  "TST",
 			Name: "Test Project",
@@ -287,20 +301,21 @@ func TestRunRestore(t *testing.T) {
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runRestore(opts, "TST")
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "Restored project TST")
+	err = runRestore(context.Background(), opts, "TST")
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "Restored project TST")
 }
 
 func TestRunTypes(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode([]api.ProjectType{
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]api.ProjectType{
 			{Key: "software", FormattedKey: "Software"},
 			{Key: "business", FormattedKey: "Business"},
 		})
@@ -308,14 +323,14 @@ func TestRunTypes(t *testing.T) {
 	defer server.Close()
 
 	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runTypes(opts)
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "software")
-	assert.Contains(t, stdout.String(), "Software")
+	err = runTypes(context.Background(), opts)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "software")
+	testutil.Contains(t, stdout.String(), "Software")
 }

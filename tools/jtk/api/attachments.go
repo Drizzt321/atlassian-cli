@@ -1,6 +1,8 @@
-package api
+// Package api provides a Go client for the Jira REST API.
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -57,15 +59,15 @@ func (f FlexibleID) String() string {
 }
 
 // GetIssueAttachments returns all attachments for an issue
-func (c *Client) GetIssueAttachments(issueKey string) ([]Attachment, error) {
+func (c *Client) GetIssueAttachments(ctx context.Context, issueKey string) ([]Attachment, error) {
 	if issueKey == "" {
-		return nil, fmt.Errorf("issue key is required")
+		return nil, ErrIssueKeyRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/issue/%s?fields=attachment", c.BaseURL, issueKey)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching issue attachments: %w", err)
 	}
 
 	var result struct {
@@ -74,44 +76,44 @@ func (c *Client) GetIssueAttachments(issueKey string) ([]Attachment, error) {
 		} `json:"fields"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse attachments: %w", err)
+		return nil, fmt.Errorf("parsing attachments: %w", err)
 	}
 
 	return result.Fields.Attachment, nil
 }
 
 // GetAttachment returns metadata for a specific attachment
-func (c *Client) GetAttachment(attachmentID string) (*Attachment, error) {
+func (c *Client) GetAttachment(ctx context.Context, attachmentID string) (*Attachment, error) {
 	if attachmentID == "" {
-		return nil, fmt.Errorf("attachment ID is required")
+		return nil, ErrAttachmentIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/attachment/%s", c.BaseURL, attachmentID)
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching attachment: %w", err)
 	}
 
 	var attachment Attachment
 	if err := json.Unmarshal(body, &attachment); err != nil {
-		return nil, fmt.Errorf("failed to parse attachment: %w", err)
+		return nil, fmt.Errorf("parsing attachment: %w", err)
 	}
 
 	return &attachment, nil
 }
 
 // AddAttachment uploads a file as an attachment to an issue
-func (c *Client) AddAttachment(issueKey, filePath string) ([]Attachment, error) {
+func (c *Client) AddAttachment(ctx context.Context, issueKey, filePath string) ([]Attachment, error) {
 	if issueKey == "" {
-		return nil, fmt.Errorf("issue key is required")
+		return nil, ErrIssueKeyRequired
 	}
 	if filePath == "" {
-		return nil, fmt.Errorf("file path is required")
+		return nil, ErrFilePathRequired
 	}
 
-	file, err := os.Open(filePath)
+	file, err := os.Open(filePath) //nolint:gosec // CLI tool opens user-provided file paths
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return nil, fmt.Errorf("opening file: %w", err)
 	}
 	defer file.Close()
 
@@ -127,12 +129,12 @@ func (c *Client) AddAttachment(issueKey, filePath string) ([]Attachment, error) 
 
 		part, err := writer.CreateFormFile("file", filepath.Base(filePath))
 		if err != nil {
-			errChan <- fmt.Errorf("failed to create form file: %w", err)
+			errChan <- fmt.Errorf("creating form file: %w", err)
 			return
 		}
 
 		if _, err := io.Copy(part, file); err != nil {
-			errChan <- fmt.Errorf("failed to copy file content: %w", err)
+			errChan <- fmt.Errorf("copying file content: %w", err)
 			return
 		}
 		errChan <- nil
@@ -140,9 +142,9 @@ func (c *Client) AddAttachment(issueKey, filePath string) ([]Attachment, error) 
 
 	urlStr := fmt.Sprintf("%s/issue/%s/attachments", c.BaseURL, issueKey)
 
-	req, err := http.NewRequest(http.MethodPost, urlStr, pr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, pr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Authorization", c.GetAuthHeader())
@@ -152,12 +154,12 @@ func (c *Client) AddAttachment(issueKey, filePath string) ([]Attachment, error) 
 	req.Header.Set("X-Atlassian-Token", "no-check")
 
 	if c.Verbose {
-		fmt.Printf("→ POST %s\n", urlStr)
+		fmt.Fprintf(os.Stderr, "→ POST %s\n", urlStr)
 	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("uploading attachment: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -168,11 +170,11 @@ func (c *Client) AddAttachment(issueKey, filePath string) ([]Attachment, error) 
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
 	if c.Verbose {
-		fmt.Printf("← %d %s\n", resp.StatusCode, http.StatusText(resp.StatusCode))
+		fmt.Fprintf(os.Stderr, "← %d %s\n", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
 	if resp.StatusCode >= 400 {
@@ -181,52 +183,55 @@ func (c *Client) AddAttachment(issueKey, filePath string) ([]Attachment, error) 
 
 	var attachments []Attachment
 	if err := json.Unmarshal(respBody, &attachments); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("parsing response: %w", err)
 	}
 
 	return attachments, nil
 }
 
 // DeleteAttachment deletes an attachment by ID
-func (c *Client) DeleteAttachment(attachmentID string) error {
+func (c *Client) DeleteAttachment(ctx context.Context, attachmentID string) error {
 	if attachmentID == "" {
-		return fmt.Errorf("attachment ID is required")
+		return ErrAttachmentIDRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/attachment/%s", c.BaseURL, attachmentID)
-	_, err := c.delete(urlStr)
-	return err
+	_, err := c.Delete(ctx, urlStr)
+	if err != nil {
+		return fmt.Errorf("deleting attachment %s: %w", attachmentID, err)
+	}
+	return nil
 }
 
 // DownloadAttachment downloads an attachment to the specified output path
-func (c *Client) DownloadAttachment(attachment *Attachment, outputPath string) error {
+func (c *Client) DownloadAttachment(ctx context.Context, attachment *Attachment, outputPath string) error {
 	if attachment == nil {
-		return fmt.Errorf("attachment is required")
+		return ErrAttachmentRequired
 	}
 	if attachment.Content == "" {
-		return fmt.Errorf("attachment has no content URL")
+		return ErrAttachmentContentMissing
 	}
 
 	// Create the request
-	req, err := http.NewRequest(http.MethodGet, attachment.Content, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, attachment.Content, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Authorization", c.GetAuthHeader())
 
 	if c.Verbose {
-		fmt.Printf("→ GET %s\n", attachment.Content)
+		fmt.Fprintf(os.Stderr, "→ GET %s\n", attachment.Content)
 	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return fmt.Errorf("downloading attachment: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if c.Verbose {
-		fmt.Printf("← %d %s\n", resp.StatusCode, http.StatusText(resp.StatusCode))
+		fmt.Fprintf(os.Stderr, "← %d %s\n", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
 	if resp.StatusCode >= 400 {
@@ -241,15 +246,15 @@ func (c *Client) DownloadAttachment(attachment *Attachment, outputPath string) e
 	}
 
 	// Create the output file
-	file, err := os.Create(outFile)
+	file, err := os.Create(outFile) //nolint:gosec // CLI tool creates user-provided file paths
 	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
+		return fmt.Errorf("creating output file: %w", err)
 	}
 	defer file.Close()
 
 	// Copy the content
 	if _, err := io.Copy(file, resp.Body); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
+		return fmt.Errorf("writing file: %w", err)
 	}
 
 	return nil

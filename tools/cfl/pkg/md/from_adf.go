@@ -18,7 +18,7 @@ func FromADF(adfJSON string) (string, error) {
 
 	var doc adf.Document
 	if err := json.Unmarshal([]byte(adfJSON), &doc); err != nil {
-		return "", fmt.Errorf("failed to parse ADF JSON: %w", err)
+		return "", fmt.Errorf("parsing ADF JSON: %w", err)
 	}
 
 	var sb strings.Builder
@@ -104,7 +104,7 @@ func renderHeading(sb *strings.Builder, node *adf.Node) {
 	sb.WriteString("\n")
 }
 
-func renderParagraph(sb *strings.Builder, node *adf.Node, depth int) {
+func renderParagraph(sb *strings.Builder, node *adf.Node, _ int) {
 	renderInlineNodes(sb, node.Content)
 	sb.WriteString("\n")
 }
@@ -405,7 +405,7 @@ func extractExtensionParams(node *adf.Node) string {
 		return ""
 	}
 
-	paramMap, ok := params.(map[string]interface{})
+	paramMap, ok := params.(map[string]any)
 	if !ok {
 		return ""
 	}
@@ -416,7 +416,7 @@ func extractExtensionParams(node *adf.Node) string {
 		if name == "macroMetadata" {
 			continue
 		}
-		if m, ok := entry.(map[string]interface{}); ok {
+		if m, ok := entry.(map[string]any); ok {
 			if v, ok := m["value"]; ok {
 				parts = append(parts, fmt.Sprintf("%s=%v", name, v))
 			}

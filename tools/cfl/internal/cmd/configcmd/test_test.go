@@ -2,13 +2,13 @@ package configcmd
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/confluence-cli/api"
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
@@ -24,6 +24,7 @@ func newTestRootOptions() *root.Options {
 }
 
 func TestRunTest_Success(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/user/current") {
 			w.WriteHeader(http.StatusOK)
@@ -40,14 +41,15 @@ func TestRunTest_Success(t *testing.T) {
 	client := api.NewClient(server.URL, "test@example.com", "token")
 	rootOpts.SetAPIClient(client)
 
-	err := runTest(rootOpts)
-	require.NoError(t, err)
+	err := runTest(context.Background(), rootOpts)
+	testutil.RequireNoError(t, err)
 	// Note: Output goes to real stdout via fmt.Print, not opts.Stdout
 	// Just verifying no error is sufficient for this test
 }
 
 func TestRunTest_AuthFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"message": "Unauthorized"}`))
 	}))
@@ -57,13 +59,14 @@ func TestRunTest_AuthFailure(t *testing.T) {
 	client := api.NewClient(server.URL, "test@example.com", "bad-token")
 	rootOpts.SetAPIClient(client)
 
-	err := runTest(rootOpts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "connection test failed")
+	err := runTest(context.Background(), rootOpts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "connection test failed")
 }
 
 func TestRunTest_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"message": "Server error"}`))
 	}))
@@ -73,7 +76,7 @@ func TestRunTest_ServerError(t *testing.T) {
 	client := api.NewClient(server.URL, "test@example.com", "token")
 	rootOpts.SetAPIClient(client)
 
-	err := runTest(rootOpts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "connection test failed")
+	err := runTest(context.Background(), rootOpts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "connection test failed")
 }

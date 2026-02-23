@@ -3,12 +3,13 @@ package automation
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 )
 
 func TestSummarizeComponents(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		components []api.RuleComponent
@@ -57,8 +58,9 @@ func TestSummarizeComponents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := summarizeComponents(tt.components)
-			assert.Equal(t, tt.want, got)
+			testutil.Equal(t, got, tt.want)
 		})
 	}
 }

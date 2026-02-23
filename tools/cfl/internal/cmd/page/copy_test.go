@@ -2,20 +2,20 @@ package page
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/confluence-cli/api"
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
 )
 
 // mockCopyServer creates a test server that handles page get and copy operations
-func mockCopyServer(t *testing.T, getHandler, copyHandler func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
+func mockCopyServer(_ *testing.T, getHandler, copyHandler func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/pages/") {
 			if getHandler != nil {
@@ -57,9 +57,10 @@ func newTestRootOptions() *root.Options {
 }
 
 func TestRunCopy_Success(t *testing.T) {
+	t.Parallel()
 	server := mockCopyServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "POST", r.Method)
-		assert.Equal(t, "/rest/api/content/12345/copy", r.URL.Path)
+		testutil.Equal(t, "POST", r.Method)
+		testutil.Equal(t, "/rest/api/content/12345/copy", r.URL.Path)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"id": "99999",
@@ -81,11 +82,12 @@ func TestRunCopy_Success(t *testing.T) {
 		space:   "TEST",
 	}
 
-	err := runCopy("12345", opts)
-	require.NoError(t, err)
+	err := runCopy(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunCopy_InfersSourceSpace(t *testing.T) {
+	t.Parallel()
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
@@ -135,13 +137,14 @@ func TestRunCopy_InfersSourceSpace(t *testing.T) {
 		space:   "", // Not specified - should infer from source
 	}
 
-	err := runCopy("12345", opts)
-	require.NoError(t, err)
-	assert.Equal(t, 3, callCount) // GetPage + GetSpace + CopyPage
+	err := runCopy(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, 3, callCount) // GetPage + GetSpace + CopyPage
 }
 
 func TestRunCopy_PageNotFound(t *testing.T) {
-	server := mockCopyServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := mockCopyServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message": "Page not found"}`))
 	})
@@ -157,13 +160,14 @@ func TestRunCopy_PageNotFound(t *testing.T) {
 		space:   "TEST",
 	}
 
-	err := runCopy("99999", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to copy page")
+	err := runCopy(context.Background(), "99999", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "copying page")
 }
 
 func TestRunCopy_JSONOutput(t *testing.T) {
-	server := mockCopyServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := mockCopyServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"id": "99999",
@@ -186,11 +190,12 @@ func TestRunCopy_JSONOutput(t *testing.T) {
 		space:   "TEST",
 	}
 
-	err := runCopy("12345", opts)
-	require.NoError(t, err)
+	err := runCopy(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunCopy_InvalidOutputFormat(t *testing.T) {
+	t.Parallel()
 	rootOpts := newTestRootOptions()
 	rootOpts.Output = "invalid"
 	client := api.NewClient("http://unused", "user@example.com", "token")
@@ -202,14 +207,15 @@ func TestRunCopy_InvalidOutputFormat(t *testing.T) {
 		space:   "TEST",
 	}
 
-	err := runCopy("12345", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid output format")
+	err := runCopy(context.Background(), "12345", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "invalid output format")
 }
 
 func TestRunCopy_GetSourcePageFails(t *testing.T) {
+	t.Parallel()
 	server := mockCopyServer(t,
-		func(w http.ResponseWriter, r *http.Request) {
+		func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"message": "Page not found"}`))
 		},
@@ -227,13 +233,14 @@ func TestRunCopy_GetSourcePageFails(t *testing.T) {
 		space:   "", // Empty - will try to get source page
 	}
 
-	err := runCopy("invalid", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get source page")
+	err := runCopy(context.Background(), "invalid", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "getting source page")
 }
 
 func TestRunCopy_WithNoAttachments(t *testing.T) {
-	server := mockCopyServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := mockCopyServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"id": "99999",
@@ -256,12 +263,13 @@ func TestRunCopy_WithNoAttachments(t *testing.T) {
 		noAttachments: true,
 	}
 
-	err := runCopy("12345", opts)
-	require.NoError(t, err)
+	err := runCopy(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunCopy_WithNoLabels(t *testing.T) {
-	server := mockCopyServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := mockCopyServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"id": "99999",
@@ -284,12 +292,13 @@ func TestRunCopy_WithNoLabels(t *testing.T) {
 		noLabels: true,
 	}
 
-	err := runCopy("12345", opts)
-	require.NoError(t, err)
+	err := runCopy(context.Background(), "12345", opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunCopy_PermissionDenied(t *testing.T) {
-	server := mockCopyServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := mockCopyServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"message": "You do not have permission to copy this page"}`))
 	})
@@ -305,12 +314,13 @@ func TestRunCopy_PermissionDenied(t *testing.T) {
 		space:   "TEST",
 	}
 
-	err := runCopy("12345", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to copy page")
+	err := runCopy(context.Background(), "12345", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "copying page")
 }
 
 func TestRunCopy_GetSpaceFails(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/pages/"):
@@ -342,7 +352,7 @@ func TestRunCopy_GetSpaceFails(t *testing.T) {
 		space:   "", // Empty - will try to get space
 	}
 
-	err := runCopy("12345", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get space")
+	err := runCopy(context.Background(), "12345", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "getting space")
 }

@@ -2,13 +2,13 @@ package page
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/confluence-cli/api"
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
@@ -17,6 +17,7 @@ import (
 // mockListServer creates a test server for page list operations
 // It handles both GetSpaceByKey and ListPages endpoints
 func mockListServer(t *testing.T, spaceKey, spaceID string, pages string) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == "GET" && strings.Contains(r.URL.Path, "/spaces") && r.URL.Query().Get("keys") != "":
@@ -46,6 +47,7 @@ func newListPageTestRootOptions() *root.Options {
 }
 
 func TestRunList_PageList_Success(t *testing.T) {
+	t.Parallel()
 	server := mockListServer(t, "DEV", "123456", `{
 		"results": [
 			{"id": "11111", "title": "Page One", "status": "current", "version": {"number": 1}},
@@ -65,11 +67,12 @@ func TestRunList_PageList_Success(t *testing.T) {
 		status:  "current",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_PageList_EmptyResults(t *testing.T) {
+	t.Parallel()
 	server := mockListServer(t, "DEV", "123456", `{"results": []}`)
 	defer server.Close()
 
@@ -84,11 +87,12 @@ func TestRunList_PageList_EmptyResults(t *testing.T) {
 		status:  "current",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_PageList_JSONOutput(t *testing.T) {
+	t.Parallel()
 	server := mockListServer(t, "DEV", "123456", `{
 		"results": [
 			{"id": "11111", "title": "Page One", "status": "current", "version": {"number": 1}}
@@ -108,11 +112,12 @@ func TestRunList_PageList_JSONOutput(t *testing.T) {
 		status:  "current",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_PageList_InvalidOutputFormat(t *testing.T) {
+	t.Parallel()
 	rootOpts := newListPageTestRootOptions()
 	rootOpts.Output = "invalid"
 
@@ -122,12 +127,13 @@ func TestRunList_PageList_InvalidOutputFormat(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid output format")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "invalid output format")
 }
 
 func TestRunList_PageList_NegativeLimit(t *testing.T) {
+	t.Parallel()
 	rootOpts := newListPageTestRootOptions()
 
 	opts := &listOptions{
@@ -137,12 +143,13 @@ func TestRunList_PageList_NegativeLimit(t *testing.T) {
 		status:  "current",
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid limit")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "invalid limit")
 }
 
 func TestRunList_PageList_ZeroLimit(t *testing.T) {
+	t.Parallel()
 	rootOpts := newListPageTestRootOptions()
 
 	opts := &listOptions{
@@ -153,13 +160,14 @@ func TestRunList_PageList_ZeroLimit(t *testing.T) {
 	}
 
 	// Zero limit should return empty without making API call
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_PageList_MissingSpace(t *testing.T) {
+	t.Parallel()
 	// Create a mock client to avoid config loading
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -175,13 +183,14 @@ func TestRunList_PageList_MissingSpace(t *testing.T) {
 		status:  "current",
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "space is required")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "space is required")
 }
 
 func TestRunList_PageList_SpaceNotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Return empty results for space lookup
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results": []}`))
@@ -199,12 +208,13 @@ func TestRunList_PageList_SpaceNotFound(t *testing.T) {
 		status:  "current",
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to find space")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "finding space")
 }
 
 func TestRunList_PageList_NullVersion(t *testing.T) {
+	t.Parallel()
 	server := mockListServer(t, "DEV", "123456", `{
 		"results": [
 			{"id": "11111", "title": "Page Without Version", "status": "current", "version": null}
@@ -223,11 +233,12 @@ func TestRunList_PageList_NullVersion(t *testing.T) {
 		status:  "current",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_PageList_HasMore(t *testing.T) {
+	t.Parallel()
 	server := mockListServer(t, "DEV", "123456", `{
 		"results": [
 			{"id": "11111", "title": "Page One", "status": "current", "version": {"number": 1}}
@@ -247,11 +258,12 @@ func TestRunList_PageList_HasMore(t *testing.T) {
 		status:  "current",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_PageList_LongTitle(t *testing.T) {
+	t.Parallel()
 	longTitle := strings.Repeat("A", 100)
 	server := mockListServer(t, "DEV", "123456", `{
 		"results": [
@@ -271,14 +283,15 @@ func TestRunList_PageList_LongTitle(t *testing.T) {
 		status:  "current",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_PageList_StatusFilter(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/pages") {
-			assert.Equal(t, "archived", r.URL.Query().Get("status"))
+			testutil.Equal(t, "archived", r.URL.Query().Get("status"))
 		}
 		if r.URL.Query().Get("keys") != "" {
 			w.WriteHeader(http.StatusOK)
@@ -301,11 +314,12 @@ func TestRunList_PageList_StatusFilter(t *testing.T) {
 		status:  "archived",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_PageList_InvalidStatus(t *testing.T) {
+	t.Parallel()
 	rootOpts := newListPageTestRootOptions()
 
 	opts := &listOptions{
@@ -315,16 +329,17 @@ func TestRunList_PageList_InvalidStatus(t *testing.T) {
 		status:  "draft",
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid status")
-	assert.Contains(t, err.Error(), "draft")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "invalid status")
+	testutil.Contains(t, err.Error(), "draft")
 }
 
 func TestRunList_PageList_TrashedStatus(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/pages") {
-			assert.Equal(t, "trashed", r.URL.Query().Get("status"))
+			testutil.Equal(t, "trashed", r.URL.Query().Get("status"))
 		}
 		if r.URL.Query().Get("keys") != "" {
 			w.WriteHeader(http.StatusOK)
@@ -347,6 +362,6 @@ func TestRunList_PageList_TrashedStatus(t *testing.T) {
 		status:  "trashed",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }

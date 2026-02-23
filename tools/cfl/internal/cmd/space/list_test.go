@@ -2,12 +2,12 @@ package space
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/confluence-cli/api"
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
@@ -23,9 +23,10 @@ func newTestRootOptions() *root.Options {
 }
 
 func TestRunList_Success(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "GET", r.Method)
-		assert.Contains(t, r.URL.Path, "/spaces")
+		testutil.Equal(t, "GET", r.Method)
+		testutil.Contains(t, r.URL.Path, "/spaces")
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -58,12 +59,13 @@ func TestRunList_Success(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_EmptyResults(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results": []}`))
 	}))
@@ -78,12 +80,13 @@ func TestRunList_EmptyResults(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_JSONOutput(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"results": [
@@ -103,11 +106,12 @@ func TestRunList_JSONOutput(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_InvalidOutputFormat(t *testing.T) {
+	t.Parallel()
 	rootOpts := newTestRootOptions()
 	rootOpts.Output = "invalid"
 
@@ -116,12 +120,13 @@ func TestRunList_InvalidOutputFormat(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid output format")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "invalid output format")
 }
 
 func TestRunList_NegativeLimit(t *testing.T) {
+	t.Parallel()
 	rootOpts := newTestRootOptions()
 
 	opts := &listOptions{
@@ -129,12 +134,13 @@ func TestRunList_NegativeLimit(t *testing.T) {
 		limit:   -1,
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid limit")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "invalid limit")
 }
 
 func TestRunList_ZeroLimit(t *testing.T) {
+	t.Parallel()
 	rootOpts := newTestRootOptions()
 
 	opts := &listOptions{
@@ -143,11 +149,12 @@ func TestRunList_ZeroLimit(t *testing.T) {
 	}
 
 	// Zero limit should return empty without making API call
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_ZeroLimitJSON(t *testing.T) {
+	t.Parallel()
 	rootOpts := newTestRootOptions()
 	rootOpts.Output = "json"
 
@@ -157,13 +164,14 @@ func TestRunList_ZeroLimitJSON(t *testing.T) {
 	}
 
 	// Zero limit should return empty JSON array without making API call
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_WithTypeFilter(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "global", r.URL.Query().Get("type"))
+		testutil.Equal(t, "global", r.URL.Query().Get("type"))
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -184,13 +192,14 @@ func TestRunList_WithTypeFilter(t *testing.T) {
 		spaceType: "global",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_WithLimitParameter(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "50", r.URL.Query().Get("limit"))
+		testutil.Equal(t, "50", r.URL.Query().Get("limit"))
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results": []}`))
@@ -206,12 +215,13 @@ func TestRunList_WithLimitParameter(t *testing.T) {
 		limit:   50,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_APIError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"message": "Authentication required"}`))
 	}))
@@ -226,13 +236,14 @@ func TestRunList_APIError(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to list spaces")
+	err := runList(context.Background(), opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "listing spaces")
 }
 
 func TestRunList_HasMore(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"results": [
@@ -252,12 +263,13 @@ func TestRunList_HasMore(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_NullDescription(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"results": [
@@ -276,13 +288,14 @@ func TestRunList_NullDescription(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_WithCursor(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "abc123", r.URL.Query().Get("cursor"))
+		testutil.Equal(t, "abc123", r.URL.Query().Get("cursor"))
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -303,12 +316,13 @@ func TestRunList_WithCursor(t *testing.T) {
 		cursor:  "abc123",
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunList_DisplaysNextCursor(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"results": [
@@ -330,13 +344,14 @@ func TestRunList_DisplaysNextCursor(t *testing.T) {
 		limit:   25,
 	}
 
-	err := runList(opts)
-	require.NoError(t, err)
-	assert.Contains(t, stderr.String(), "nextPageCursor123")
-	assert.Contains(t, stderr.String(), "--cursor")
+	err := runList(context.Background(), opts)
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stderr.String(), "nextPageCursor123")
+	testutil.Contains(t, stderr.String(), "--cursor")
 }
 
 func TestExtractCursor(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		nextLink string
@@ -366,8 +381,9 @@ func TestExtractCursor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := extractCursor(tt.nextLink)
-			assert.Equal(t, tt.want, got)
+			testutil.Equal(t, tt.want, got)
 		})
 	}
 }

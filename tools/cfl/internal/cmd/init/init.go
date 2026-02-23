@@ -2,6 +2,7 @@
 package init
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -44,8 +45,8 @@ To generate an API token:
 
   # Pre-populate URL
   cfl init --url https://mycompany.atlassian.net`,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runInit(url, email, noVerify)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runInit(cmd.Context(), url, email, noVerify)
 		},
 	}
 
@@ -56,7 +57,7 @@ To generate an API token:
 	return cmd
 }
 
-func runInit(prefillURL, prefillEmail string, noVerify bool) error {
+func runInit(ctx context.Context, prefillURL, prefillEmail string, noVerify bool) error {
 	configPath := config.DefaultConfigPath()
 
 	// Load existing config for pre-population
@@ -77,7 +78,7 @@ func runInit(prefillURL, prefillEmail string, noVerify bool) error {
 			return err
 		}
 		if !overwrite {
-			fmt.Println("Initialization cancelled.")
+			_, _ = fmt.Fprintln(os.Stderr, "Initialization cancelled.")
 			return nil
 		}
 	}
@@ -167,12 +168,12 @@ func runInit(prefillURL, prefillEmail string, noVerify bool) error {
 
 	// Verify connection unless skipped
 	if !noVerify {
-		fmt.Print("Verifying connection... ")
-		if err := verifyConnection(cfg); err != nil {
-			fmt.Println("failed!")
-			return fmt.Errorf("connection verification failed: %w", err)
+		_, _ = fmt.Fprint(os.Stderr, "Verifying connection... ")
+		if err := verifyConnection(ctx, cfg); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "failed!")
+			return fmt.Errorf("verifying connection: %w", err)
 		}
-		fmt.Println("success!")
+		_, _ = fmt.Fprintln(os.Stderr, "success!")
 	}
 
 	// Save configuration
@@ -180,18 +181,18 @@ func runInit(prefillURL, prefillEmail string, noVerify bool) error {
 		return err
 	}
 
-	fmt.Printf("\nConfiguration saved to %s\n", configPath)
-	fmt.Println("\nYou're all set! Try running:")
-	fmt.Println("  cfl space list")
-	fmt.Println("  cfl page list --space <SPACE_KEY>")
+	_, _ = fmt.Fprintf(os.Stderr, "\nConfiguration saved to %s\n", configPath)
+	_, _ = fmt.Fprintln(os.Stderr, "\nYou're all set! Try running:")
+	_, _ = fmt.Fprintln(os.Stderr, "  cfl space list")
+	_, _ = fmt.Fprintln(os.Stderr, "  cfl page list --space <SPACE_KEY>")
 
 	return nil
 }
 
-func verifyConnection(cfg *config.Config) error {
+func verifyConnection(ctx context.Context, cfg *config.Config) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	req, err := http.NewRequest("GET", cfg.URL+"/api/v2/spaces?limit=1", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", cfg.URL+"/api/v2/spaces?limit=1", nil)
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"bytes"
@@ -43,12 +43,12 @@ func (c *Client) ListAttachments(ctx context.Context, pageID string, opts *ListA
 	path := fmt.Sprintf("/api/v2/pages/%s/attachments?%s", pageID, params.Encode())
 	body, err := c.Get(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing attachments: %w", err)
 	}
 
 	var result PaginatedResponse[Attachment]
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse attachments response: %w", err)
+		return nil, fmt.Errorf("parsing attachments response: %w", err)
 	}
 
 	return &result, nil
@@ -59,12 +59,12 @@ func (c *Client) GetAttachment(ctx context.Context, attachmentID string) (*Attac
 	path := fmt.Sprintf("/api/v2/attachments/%s", attachmentID)
 	body, err := c.Get(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting attachment: %w", err)
 	}
 
 	var att Attachment
 	if err := json.Unmarshal(body, &att); err != nil {
-		return nil, fmt.Errorf("failed to parse attachment response: %w", err)
+		return nil, fmt.Errorf("parsing attachment response: %w", err)
 	}
 
 	return &att, nil
@@ -75,7 +75,7 @@ func (c *Client) DownloadAttachment(ctx context.Context, attachmentID string) (i
 	// Get attachment metadata which includes the download URL
 	att, err := c.GetAttachment(ctx, attachmentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get attachment: %w", err)
+		return nil, fmt.Errorf("getting attachment: %w", err)
 	}
 
 	if att.DownloadLink == "" {
@@ -87,18 +87,18 @@ func (c *Client) DownloadAttachment(ctx context.Context, attachmentID string) (i
 
 	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating download request: %w", err)
 	}
 	req.Header.Set("Authorization", c.GetAuthHeader())
 
 	resp, err := c.GetHTTPClient().Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("downloading attachment: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("download failed with status %d", resp.StatusCode)
+		return nil, fmt.Errorf("downloading attachment: status %d", resp.StatusCode)
 	}
 
 	return resp.Body, nil
@@ -114,28 +114,28 @@ func (c *Client) UploadAttachment(ctx context.Context, pageID, filename string, 
 	// Add file part
 	part, err := writer.CreateFormFile("file", filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create form file: %w", err)
+		return nil, fmt.Errorf("creating form file: %w", err)
 	}
 	if _, err := io.Copy(part, content); err != nil {
-		return nil, fmt.Errorf("failed to copy file content: %w", err)
+		return nil, fmt.Errorf("copying file content: %w", err)
 	}
 
 	// Add comment if provided
 	if comment != "" {
 		if err := writer.WriteField("comment", comment); err != nil {
-			return nil, fmt.Errorf("failed to write comment field: %w", err)
+			return nil, fmt.Errorf("writing comment field: %w", err)
 		}
 	}
 
 	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
+		return nil, fmt.Errorf("closing multipart writer: %w", err)
 	}
 
 	// Use v1 API for uploads
 	path := fmt.Sprintf("/rest/api/content/%s/child/attachment", pageID)
 	req, err := http.NewRequestWithContext(ctx, "POST", c.GetBaseURL()+path, &buf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating upload request: %w", err)
 	}
 
 	req.Header.Set("Authorization", c.GetAuthHeader())
@@ -144,19 +144,19 @@ func (c *Client) UploadAttachment(ctx context.Context, pageID, filename string, 
 
 	resp, err := c.GetHTTPClient().Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("uploading attachment: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading upload response: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(respBody, &errResp); err != nil {
-			return nil, fmt.Errorf("upload failed (status %d): %s", resp.StatusCode, string(respBody))
+			return nil, fmt.Errorf("uploading attachment (status %d): %s", resp.StatusCode, string(respBody))
 		}
 		return nil, &errResp
 	}
@@ -166,7 +166,7 @@ func (c *Client) UploadAttachment(ctx context.Context, pageID, filename string, 
 		Results []Attachment `json:"results"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse upload response: %w", err)
+		return nil, fmt.Errorf("parsing upload response: %w", err)
 	}
 
 	if len(result.Results) == 0 {
@@ -180,5 +180,8 @@ func (c *Client) UploadAttachment(ctx context.Context, pageID, filename string, 
 func (c *Client) DeleteAttachment(ctx context.Context, attachmentID string) error {
 	path := fmt.Sprintf("/api/v2/attachments/%s", attachmentID)
 	_, err := c.Delete(ctx, path)
-	return err
+	if err != nil {
+		return fmt.Errorf("deleting attachment %s: %w", attachmentID, err)
+	}
+	return nil
 }

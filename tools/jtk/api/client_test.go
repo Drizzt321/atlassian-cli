@@ -1,21 +1,23 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 )
 
 func TestNew(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		cfg         ClientConfig
 		wantErr     bool
+		wantErrIs   error
 		wantURL     string
 		wantBaseURL string
 	}{
@@ -69,7 +71,8 @@ func TestNew(t *testing.T) {
 				Email:    "user@example.com",
 				APIToken: "token123",
 			},
-			wantErr: true,
+			wantErr:   true,
+			wantErrIs: ErrURLRequired,
 		},
 		{
 			name: "missing email",
@@ -77,7 +80,8 @@ func TestNew(t *testing.T) {
 				URL:      "https://example.atlassian.net",
 				APIToken: "token123",
 			},
-			wantErr: true,
+			wantErr:   true,
+			wantErrIs: ErrEmailRequired,
 		},
 		{
 			name: "missing api token",
@@ -85,7 +89,8 @@ func TestNew(t *testing.T) {
 				URL:   "https://example.atlassian.net",
 				Email: "user@example.com",
 			},
-			wantErr: true,
+			wantErr:   true,
+			wantErrIs: ErrAPITokenRequired,
 		},
 	}
 
@@ -93,16 +98,21 @@ func TestNew(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client, err := New(tt.cfg)
 			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Nil(t, client)
+				testutil.Error(t, err)
+				testutil.Nil(t, client)
+				if tt.wantErrIs != nil {
+					if !errors.Is(err, tt.wantErrIs) {
+						t.Errorf("got error %v, want %v", err, tt.wantErrIs)
+					}
+				}
 			} else {
-				require.NoError(t, err)
-				assert.NotNil(t, client)
-				assert.Equal(t, tt.wantURL, client.URL)
-				assert.Equal(t, tt.wantBaseURL, client.BaseURL)
-				assert.Equal(t, tt.wantURL+"/rest/agile/1.0", client.AgileURL)
+				testutil.RequireNoError(t, err)
+				testutil.NotNil(t, client)
+				testutil.Equal(t, client.URL, tt.wantURL)
+				testutil.Equal(t, client.BaseURL, tt.wantBaseURL)
+				testutil.Equal(t, client.AgileURL, tt.wantURL+"/rest/agile/1.0")
 				// Auth header should be set
-				assert.Contains(t, client.GetAuthHeader(), "Basic ")
+				testutil.Contains(t, client.GetAuthHeader(), "Basic ")
 			}
 		})
 	}
@@ -145,12 +155,12 @@ func TestClient_get(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Verify auth header is present
-				assert.NotEmpty(t, r.Header.Get("Authorization"))
-				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-				assert.Equal(t, "application/json", r.Header.Get("Accept"))
+				testutil.NotEmpty(t, r.Header.Get("Authorization"))
+				testutil.Equal(t, r.Header.Get("Content-Type"), "application/json")
+				testutil.Equal(t, r.Header.Get("Accept"), "application/json")
 
 				w.WriteHeader(tt.responseStatus)
-				w.Write([]byte(tt.responseBody))
+				_, _ = w.Write([]byte(tt.responseBody))
 			}))
 			defer server.Close()
 
@@ -159,28 +169,28 @@ func TestClient_get(t *testing.T) {
 				Email:    "user@example.com",
 				APIToken: "token",
 			})
-			require.NoError(t, err)
+			testutil.RequireNoError(t, err)
 
-			body, err := client.get(server.URL + "/test")
+			body, err := client.Get(context.Background(), server.URL+"/test")
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				testutil.Error(t, err)
 			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.responseBody, string(body))
+				testutil.RequireNoError(t, err)
+				testutil.Equal(t, string(body), tt.responseBody)
 			}
 		})
 	}
 }
 
 func TestClient_post_withBody(t *testing.T) {
-	var receivedBody map[string]interface{}
+	var receivedBody map[string]any
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		err := json.NewDecoder(r.Body).Decode(&receivedBody)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"success": true}`))
+		_, _ = w.Write([]byte(`{"success": true}`))
 	}))
 	defer server.Close()
 
@@ -189,21 +199,21 @@ func TestClient_post_withBody(t *testing.T) {
 		Email:    "user@example.com",
 		APIToken: "token",
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	requestBody := map[string]interface{}{
+	requestBody := map[string]any{
 		"summary": "Test issue",
 		"priority": map[string]string{
 			"name": "High",
 		},
 	}
 
-	_, err = client.post(server.URL+"/test", requestBody)
-	require.NoError(t, err)
+	_, err = client.Post(context.Background(), server.URL+"/test", requestBody)
+	testutil.RequireNoError(t, err)
 
-	assert.Equal(t, "Test issue", receivedBody["summary"])
-	priority := receivedBody["priority"].(map[string]interface{})
-	assert.Equal(t, "High", priority["name"])
+	testutil.Equal(t, receivedBody["summary"], "Test issue")
+	priority := receivedBody["priority"].(map[string]any)
+	testutil.Equal(t, priority["name"], "High")
 }
 
 func TestBuildURL(t *testing.T) {
@@ -256,7 +266,7 @@ func TestBuildURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := buildURL(tt.base, tt.params)
-			assert.Equal(t, tt.want, got)
+			testutil.Equal(t, got, tt.want)
 		})
 	}
 }
@@ -285,15 +295,15 @@ func TestClient_IssueURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &Client{URL: tt.url}
-			assert.Equal(t, tt.want, client.IssueURL(tt.issueKey))
+			testutil.Equal(t, client.IssueURL(tt.issueKey), tt.want)
 		})
 	}
 }
 
 func TestClient_VerboseMode(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{}`))
+		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer server.Close()
 
@@ -303,9 +313,9 @@ func TestClient_VerboseMode(t *testing.T) {
 		APIToken: "token",
 		Verbose:  true,
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Just verify it doesn't panic with verbose mode
 	_, err = client.Get(context.Background(), "/test")
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }

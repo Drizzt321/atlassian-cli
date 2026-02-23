@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
@@ -43,12 +43,12 @@ func (c *Client) ListSpaces(ctx context.Context, opts *ListSpacesOptions) (*Pagi
 	path := "/api/v2/spaces?" + params.Encode()
 	body, err := c.Get(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing spaces: %w", err)
 	}
 
 	var result PaginatedResponse[Space]
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse spaces response: %w", err)
+		return nil, fmt.Errorf("parsing spaces response: %w", err)
 	}
 
 	return &result, nil
@@ -59,12 +59,12 @@ func (c *Client) GetSpace(ctx context.Context, spaceID string) (*Space, error) {
 	path := fmt.Sprintf("/api/v2/spaces/%s", spaceID)
 	body, err := c.Get(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting space: %w", err)
 	}
 
 	var space Space
 	if err := json.Unmarshal(body, &space); err != nil {
-		return nil, fmt.Errorf("failed to parse space response: %w", err)
+		return nil, fmt.Errorf("parsing space response: %w", err)
 	}
 
 	return &space, nil
@@ -78,7 +78,7 @@ func (c *Client) GetSpaceByKey(ctx context.Context, key string) (*Space, error) 
 	}
 	result, err := c.ListSpaces(ctx, opts)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting space by key %s: %w", key, err)
 	}
 
 	if len(result.Results) == 0 {

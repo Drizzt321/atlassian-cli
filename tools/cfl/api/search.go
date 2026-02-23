@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
@@ -94,12 +94,12 @@ func (c *Client) Search(ctx context.Context, opts *SearchOptions) (*SearchRespon
 	path := "/rest/api/search?" + params.Encode()
 	body, err := c.Get(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("searching: %w", err)
 	}
 
 	var result SearchResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse search response: %w", err)
+		return nil, fmt.Errorf("parsing search response: %w", err)
 	}
 
 	return &result, nil

@@ -37,8 +37,8 @@ func newListCmd(rootOpts *root.Options) *cobra.Command {
 
   # List unused (orphaned) attachments not referenced in page content
   cfl attachment list --page 12345 --unused`,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runList(opts)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runList(cmd.Context(), opts)
 		},
 	}
 
@@ -51,7 +51,7 @@ func newListCmd(rootOpts *root.Options) *cobra.Command {
 	return cmd
 }
 
-func runList(opts *listOptions) error {
+func runList(ctx context.Context, opts *listOptions) error {
 	if err := view.ValidateFormat(opts.Output); err != nil {
 		return err
 	}
@@ -65,19 +65,19 @@ func runList(opts *listOptions) error {
 		Limit: opts.limit,
 	}
 
-	result, err := client.ListAttachments(context.Background(), opts.pageID, apiOpts)
+	result, err := client.ListAttachments(ctx, opts.pageID, apiOpts)
 	if err != nil {
-		return fmt.Errorf("failed to list attachments: %w", err)
+		return fmt.Errorf("listing attachments: %w", err)
 	}
 
 	attachments := result.Results
 
 	if opts.unused {
-		page, err := client.GetPage(context.Background(), opts.pageID, &api.GetPageOptions{
+		page, err := client.GetPage(ctx, opts.pageID, &api.GetPageOptions{
 			BodyFormat: "storage",
 		})
 		if err != nil {
-			return fmt.Errorf("failed to get page content: %w", err)
+			return fmt.Errorf("getting page content: %w", err)
 		}
 
 		pageContent := ""
@@ -91,7 +91,7 @@ func runList(opts *listOptions) error {
 	v := opts.View()
 
 	headers := []string{"ID", "Title", "Media Type", "File Size"}
-	var rows [][]string
+	rows := make([][]string, 0, len(attachments))
 	for _, att := range attachments {
 		size := formatFileSize(att.FileSize)
 		rows = append(rows, []string{att.ID, att.Title, att.MediaType, size})
@@ -99,9 +99,9 @@ func runList(opts *listOptions) error {
 
 	if len(attachments) == 0 && opts.Output != "json" {
 		if opts.unused {
-			fmt.Println("No unused attachments found.")
+			_, _ = fmt.Fprintln(opts.Stderr, "No unused attachments found.")
 		} else {
-			fmt.Println("No attachments found.")
+			_, _ = fmt.Fprintln(opts.Stderr, "No attachments found.")
 		}
 		return nil
 	}

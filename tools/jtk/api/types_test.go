@@ -1,14 +1,30 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 )
 
+// jsonEq compares two JSON strings for structural equality.
+func jsonEq(t *testing.T, got, want string) {
+	t.Helper()
+	var gotVal, wantVal any
+	if err := json.Unmarshal([]byte(got), &gotVal); err != nil {
+		t.Fatalf("got is not valid JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(want), &wantVal); err != nil {
+		t.Fatalf("want is not valid JSON: %v", err)
+	}
+	// Re-marshal both to canonical form for comparison
+	gotBytes, _ := json.Marshal(gotVal)
+	wantBytes, _ := json.Marshal(wantVal)
+	testutil.Equal(t, string(gotBytes), string(wantBytes))
+}
+
 func TestDescription_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -75,9 +91,9 @@ func TestDescription_UnmarshalJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var desc Description
 			err := json.Unmarshal([]byte(tt.input), &desc)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantText, desc.Text)
-			assert.Equal(t, tt.wantADF, desc.ADF != nil)
+			testutil.RequireNoError(t, err)
+			testutil.Equal(t, desc.Text, tt.wantText)
+			testutil.Equal(t, desc.ADF != nil, tt.wantADF)
 		})
 	}
 }
@@ -115,15 +131,15 @@ func TestDescription_MarshalJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			data, err := json.Marshal(&tt.desc)
-			require.NoError(t, err)
-			assert.JSONEq(t, tt.want, string(data))
+			testutil.RequireNoError(t, err)
+			jsonEq(t, string(data), tt.want)
 		})
 	}
 }
 
 func TestDescription_ToPlainText(t *testing.T) {
-	assert.Equal(t, "", (*Description)(nil).ToPlainText())
-	assert.Equal(t, "test", (&Description{Text: "test"}).ToPlainText())
+	testutil.Equal(t, (*Description)(nil).ToPlainText(), "")
+	testutil.Equal(t, (&Description{Text: "test"}).ToPlainText(), "test")
 }
 
 func TestNewADFDocument(t *testing.T) {
@@ -159,12 +175,12 @@ func TestNewADFDocument(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := NewADFDocument(tt.text)
 			if tt.want == nil {
-				assert.Nil(t, got)
+				testutil.Nil(t, got)
 			} else {
-				require.NotNil(t, got)
-				assert.Equal(t, tt.want.Type, got.Type)
-				assert.Equal(t, tt.want.Version, got.Version)
-				assert.Equal(t, len(tt.want.Content), len(got.Content))
+				testutil.NotNil(t, got)
+				testutil.Equal(t, got.Type, tt.want.Type)
+				testutil.Equal(t, got.Version, tt.want.Version)
+				testutil.Equal(t, len(got.Content), len(tt.want.Content))
 			}
 		})
 	}
@@ -237,7 +253,7 @@ func TestADFDocument_ToPlainText(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.doc.ToPlainText()
-			assert.Equal(t, tt.want, got)
+			testutil.Equal(t, got, tt.want)
 		})
 	}
 }
@@ -282,17 +298,17 @@ func TestIssue_UnmarshalJSON(t *testing.T) {
 
 	var issue Issue
 	err := json.Unmarshal([]byte(input), &issue)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	assert.Equal(t, "10001", issue.ID)
-	assert.Equal(t, "PROJ-123", issue.Key)
-	assert.Equal(t, "Test Issue", issue.Fields.Summary)
-	assert.Equal(t, "Plain text description", issue.Fields.Description.Text)
-	assert.Equal(t, "Open", issue.Fields.Status.Name)
-	assert.Equal(t, "Task", issue.Fields.IssueType.Name)
-	assert.Equal(t, "Medium", issue.Fields.Priority.Name)
-	assert.Equal(t, "John Doe", issue.Fields.Assignee.DisplayName)
-	assert.Equal(t, []string{"bug", "urgent"}, issue.Fields.Labels)
+	testutil.Equal(t, issue.ID, "10001")
+	testutil.Equal(t, issue.Key, "PROJ-123")
+	testutil.Equal(t, issue.Fields.Summary, "Test Issue")
+	testutil.Equal(t, issue.Fields.Description.Text, "Plain text description")
+	testutil.Equal(t, issue.Fields.Status.Name, "Open")
+	testutil.Equal(t, issue.Fields.IssueType.Name, "Task")
+	testutil.Equal(t, issue.Fields.Priority.Name, "Medium")
+	testutil.Equal(t, issue.Fields.Assignee.DisplayName, "John Doe")
+	testutil.Equal(t, issue.Fields.Labels, []string{"bug", "urgent"})
 }
 
 func TestSearchResult_UnmarshalJSON(t *testing.T) {
@@ -308,14 +324,14 @@ func TestSearchResult_UnmarshalJSON(t *testing.T) {
 
 	var result SearchResult
 	err := json.Unmarshal([]byte(input), &result)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	assert.Equal(t, 0, result.StartAt)
-	assert.Equal(t, 50, result.MaxResults)
-	assert.Equal(t, 2, result.Total)
-	assert.Len(t, result.Issues, 2)
-	assert.Equal(t, "PROJ-1", result.Issues[0].Key)
-	assert.Equal(t, "PROJ-2", result.Issues[1].Key)
+	testutil.Equal(t, result.StartAt, 0)
+	testutil.Equal(t, result.MaxResults, 50)
+	testutil.Equal(t, result.Total, 2)
+	testutil.Len(t, result.Issues, 2)
+	testutil.Equal(t, result.Issues[0].Key, "PROJ-1")
+	testutil.Equal(t, result.Issues[1].Key, "PROJ-2")
 }
 
 func TestTransition_UnmarshalJSON(t *testing.T) {
@@ -335,11 +351,11 @@ func TestTransition_UnmarshalJSON(t *testing.T) {
 
 	var transition Transition
 	err := json.Unmarshal([]byte(input), &transition)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	assert.Equal(t, "21", transition.ID)
-	assert.Equal(t, "In Progress", transition.Name)
-	assert.Equal(t, "In Progress", transition.To.Name)
+	testutil.Equal(t, transition.ID, "21")
+	testutil.Equal(t, transition.Name, "In Progress")
+	testutil.Equal(t, transition.To.Name, "In Progress")
 }
 
 func TestComment_UnmarshalJSON(t *testing.T) {
@@ -366,17 +382,17 @@ func TestComment_UnmarshalJSON(t *testing.T) {
 
 	var comment Comment
 	err := json.Unmarshal([]byte(input), &comment)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	assert.Equal(t, "10001", comment.ID)
-	assert.Equal(t, "Jane Doe", comment.Author.DisplayName)
-	assert.NotNil(t, comment.Body)
-	assert.Equal(t, "This is a comment\n", comment.Body.ToPlainText())
+	testutil.Equal(t, comment.ID, "10001")
+	testutil.Equal(t, comment.Author.DisplayName, "Jane Doe")
+	testutil.NotNil(t, comment.Body)
+	testutil.Equal(t, comment.Body.ToPlainText(), "This is a comment\n")
 }
 
 func TestCreateIssueRequest_MarshalJSON(t *testing.T) {
 	req := CreateIssueRequest{
-		Fields: map[string]interface{}{
+		Fields: map[string]any{
 			"project":   map[string]string{"key": "PROJ"},
 			"issuetype": map[string]string{"name": "Task"},
 			"summary":   "New task",
@@ -384,39 +400,39 @@ func TestCreateIssueRequest_MarshalJSON(t *testing.T) {
 	}
 
 	data, err := json.Marshal(req)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(data, &result)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	fields := result["fields"].(map[string]interface{})
-	assert.Equal(t, "New task", fields["summary"])
-	project := fields["project"].(map[string]interface{})
-	assert.Equal(t, "PROJ", project["key"])
+	fields := result["fields"].(map[string]any)
+	testutil.Equal(t, fields["summary"], "New task")
+	project := fields["project"].(map[string]any)
+	testutil.Equal(t, project["key"], "PROJ")
 }
 
 func TestTransitionRequest_MarshalJSON(t *testing.T) {
 	req := TransitionRequest{
 		Transition: TransitionID{ID: "21"},
-		Fields: map[string]interface{}{
+		Fields: map[string]any{
 			"resolution": map[string]string{"name": "Done"},
 		},
 	}
 
 	data, err := json.Marshal(req)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(data, &result)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	transition := result["transition"].(map[string]interface{})
-	assert.Equal(t, "21", transition["id"])
+	transition := result["transition"].(map[string]any)
+	testutil.Equal(t, transition["id"], "21")
 
-	fields := result["fields"].(map[string]interface{})
-	resolution := fields["resolution"].(map[string]interface{})
-	assert.Equal(t, "Done", resolution["name"])
+	fields := result["fields"].(map[string]any)
+	resolution := fields["resolution"].(map[string]any)
+	testutil.Equal(t, resolution["name"], "Done")
 }
 
 func TestIssueFields_CustomFields(t *testing.T) {
@@ -431,48 +447,48 @@ func TestIssueFields_CustomFields(t *testing.T) {
 
 	var fields IssueFields
 	err := json.Unmarshal([]byte(input), &fields)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Standard fields should be parsed
-	assert.Equal(t, "Test Issue", fields.Summary)
-	assert.NotNil(t, fields.Status)
-	assert.Equal(t, "Open", fields.Status.Name)
+	testutil.Equal(t, fields.Summary, "Test Issue")
+	testutil.NotNil(t, fields.Status)
+	testutil.Equal(t, fields.Status.Name, "Open")
 
 	// Custom fields should be captured
-	assert.NotNil(t, fields.CustomFields)
-	assert.Equal(t, float64(5), fields.CustomFields["customfield_10001"])
+	testutil.NotNil(t, fields.CustomFields)
+	testutil.Equal(t, fields.CustomFields["customfield_10001"], float64(5))
 
-	customfield_10002 := fields.CustomFields["customfield_10002"].(map[string]interface{})
-	assert.Equal(t, "Feature", customfield_10002["value"])
+	customField10002 := fields.CustomFields["customfield_10002"].(map[string]any)
+	testutil.Equal(t, customField10002["value"], "Feature")
 
-	customfield_10003 := fields.CustomFields["customfield_10003"].([]interface{})
-	assert.Len(t, customfield_10003, 2)
+	customField10003 := fields.CustomFields["customfield_10003"].([]any)
+	testutil.Len(t, customField10003, 2)
 }
 
 func TestIssueFields_MarshalJSON_IncludesCustomFields(t *testing.T) {
 	fields := IssueFields{
 		Summary: "Test Issue",
 		Status:  &Status{ID: "1", Name: "Open"},
-		CustomFields: map[string]interface{}{
+		CustomFields: map[string]any{
 			"customfield_10001": 5,
 			"customfield_10002": map[string]string{"value": "Feature"},
 		},
 	}
 
 	data, err := json.Marshal(fields)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(data, &result)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Standard fields should be present
-	assert.Equal(t, "Test Issue", result["summary"])
+	testutil.Equal(t, result["summary"], "Test Issue")
 
 	// Custom fields should be included
-	assert.Equal(t, float64(5), result["customfield_10001"])
-	customfield_10002 := result["customfield_10002"].(map[string]interface{})
-	assert.Equal(t, "Feature", customfield_10002["value"])
+	testutil.Equal(t, result["customfield_10001"], float64(5))
+	customField10002 := result["customfield_10002"].(map[string]any)
+	testutil.Equal(t, customField10002["value"], "Feature")
 }
 
 func TestExtractText_Headings(t *testing.T) {
@@ -482,7 +498,7 @@ func TestExtractText_Headings(t *testing.T) {
 		Content: []*ADFNode{
 			{
 				Type:  "heading",
-				Attrs: map[string]interface{}{"level": float64(1)},
+				Attrs: map[string]any{"level": float64(1)},
 				Content: []*ADFNode{
 					{Type: "text", Text: "Title"},
 				},
@@ -497,10 +513,10 @@ func TestExtractText_Headings(t *testing.T) {
 	}
 
 	got := doc.ToPlainText()
-	assert.Contains(t, got, "Title")
-	assert.Contains(t, got, "Body text")
+	testutil.Contains(t, got, "Title")
+	testutil.Contains(t, got, "Body text")
 	// Heading should have newlines around it for separation
-	assert.Equal(t, "\nTitle\nBody text\n", got)
+	testutil.Equal(t, got, "\nTitle\nBody text\n")
 }
 
 func TestExtractText_BulletList(t *testing.T) {
@@ -529,8 +545,8 @@ func TestExtractText_BulletList(t *testing.T) {
 	}
 
 	got := doc.ToPlainText()
-	assert.Contains(t, got, "- Item one")
-	assert.Contains(t, got, "- Item two")
+	testutil.Contains(t, got, "- Item one")
+	testutil.Contains(t, got, "- Item two")
 }
 
 func TestExtractText_CodeBlock(t *testing.T) {
@@ -546,7 +562,7 @@ func TestExtractText_CodeBlock(t *testing.T) {
 			},
 			{
 				Type:  "codeBlock",
-				Attrs: map[string]interface{}{"language": "go"},
+				Attrs: map[string]any{"language": "go"},
 				Content: []*ADFNode{
 					{Type: "text", Text: "fmt.Println(\"hello\")"},
 				},
@@ -561,9 +577,9 @@ func TestExtractText_CodeBlock(t *testing.T) {
 	}
 
 	got := doc.ToPlainText()
-	assert.Contains(t, got, "Before code")
-	assert.Contains(t, got, "fmt.Println(\"hello\")")
-	assert.Contains(t, got, "After code")
+	testutil.Contains(t, got, "Before code")
+	testutil.Contains(t, got, "fmt.Println(\"hello\")")
+	testutil.Contains(t, got, "After code")
 }
 
 func TestExtractText_Blockquote(t *testing.T) {
@@ -586,7 +602,7 @@ func TestExtractText_Blockquote(t *testing.T) {
 	}
 
 	got := doc.ToPlainText()
-	assert.Contains(t, got, "> Quoted text")
+	testutil.Contains(t, got, "> Quoted text")
 }
 
 func TestExtractText_Rule(t *testing.T) {
@@ -611,9 +627,9 @@ func TestExtractText_Rule(t *testing.T) {
 	}
 
 	got := doc.ToPlainText()
-	assert.Contains(t, got, "Above")
-	assert.Contains(t, got, "---")
-	assert.Contains(t, got, "Below")
+	testutil.Contains(t, got, "Above")
+	testutil.Contains(t, got, "---")
+	testutil.Contains(t, got, "Below")
 }
 
 func TestExtractText_NestedList(t *testing.T) {
@@ -647,8 +663,8 @@ func TestExtractText_NestedList(t *testing.T) {
 	}
 
 	got := doc.ToPlainText()
-	assert.Contains(t, got, "- Parent")
-	assert.Contains(t, got, "  - Child")
+	testutil.Contains(t, got, "- Parent")
+	testutil.Contains(t, got, "  - Child")
 }
 
 func TestIssue_RoundTrip_WithCustomFields(t *testing.T) {
@@ -667,21 +683,21 @@ func TestIssue_RoundTrip_WithCustomFields(t *testing.T) {
 
 	var issue Issue
 	err := json.Unmarshal([]byte(input), &issue)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Verify custom fields were captured
-	assert.Equal(t, float64(8), issue.Fields.CustomFields["customfield_10001"])
+	testutil.Equal(t, issue.Fields.CustomFields["customfield_10001"], float64(8))
 
 	// Marshal back to JSON
 	data, err := json.Marshal(issue)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Verify custom fields are in the output
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(data, &result)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
-	fields := result["fields"].(map[string]interface{})
-	assert.Equal(t, float64(8), fields["customfield_10001"])
-	assert.Equal(t, "Bug Fix", fields["customfield_10002"].(map[string]interface{})["value"])
+	fields := result["fields"].(map[string]any)
+	testutil.Equal(t, fields["customfield_10001"], float64(8))
+	testutil.Equal(t, fields["customfield_10002"].(map[string]any)["value"], "Bug Fix")
 }

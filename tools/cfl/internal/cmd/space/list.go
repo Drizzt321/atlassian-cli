@@ -39,8 +39,8 @@ func newListCmd(rootOpts *root.Options) *cobra.Command {
 
   # Paginate through results
   cfl space list --cursor "eyJpZCI6MTIzfQ=="`,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runList(opts)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runList(cmd.Context(), opts)
 		},
 	}
 
@@ -51,7 +51,7 @@ func newListCmd(rootOpts *root.Options) *cobra.Command {
 	return cmd
 }
 
-func runList(opts *listOptions) error {
+func runList(ctx context.Context, opts *listOptions) error {
 	if err := view.ValidateFormat(opts.Output); err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func runList(opts *listOptions) error {
 
 	if opts.limit == 0 {
 		if opts.Output == "json" {
-			return v.JSON([]interface{}{})
+			return v.JSON([]any{})
 		}
 		v.RenderText("No spaces found.")
 		return nil
@@ -81,9 +81,9 @@ func runList(opts *listOptions) error {
 		Cursor: opts.cursor,
 	}
 
-	result, err := client.ListSpaces(context.Background(), apiOpts)
+	result, err := client.ListSpaces(ctx, apiOpts)
 	if err != nil {
-		return fmt.Errorf("failed to list spaces: %w", err)
+		return fmt.Errorf("listing spaces: %w", err)
 	}
 
 	if len(result.Results) == 0 {
@@ -92,7 +92,7 @@ func runList(opts *listOptions) error {
 	}
 
 	headers := []string{"KEY", "NAME", "TYPE", "DESCRIPTION"}
-	var rows [][]string
+	rows := make([][]string, 0, len(result.Results))
 
 	for _, space := range result.Results {
 		desc := ""

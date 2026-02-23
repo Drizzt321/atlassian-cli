@@ -2,14 +2,14 @@ package attachment
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/confluence-cli/api"
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
@@ -18,6 +18,7 @@ import (
 // TestSanitizeAttachmentFilename validates that filepath.Base correctly
 // sanitizes malicious filenames that could be used for path traversal attacks.
 func TestSanitizeAttachmentFilename(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -82,6 +83,7 @@ func TestSanitizeAttachmentFilename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := filepath.Base(tt.input)
 			if result != tt.expected {
 				t.Errorf("filepath.Base(%q) = %q, want %q", tt.input, result, tt.expected)
@@ -97,6 +99,7 @@ func TestSanitizeAttachmentFilename(t *testing.T) {
 }
 
 func mockDownloadServer(t *testing.T) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/attachments/att123":
@@ -148,16 +151,17 @@ func TestRunDownload_Success(t *testing.T) {
 		Options: rootOpts,
 	}
 
-	err := runDownload("att123", opts)
-	require.NoError(t, err)
+	err := runDownload(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
 
 	// Verify file was created
-	content, err := os.ReadFile(filepath.Join(tmpDir, "document.pdf"))
-	require.NoError(t, err)
-	assert.Equal(t, "fake pdf content", string(content))
+	content, err := os.ReadFile(filepath.Join(tmpDir, "document.pdf")) //nolint:gosec // reading test output file
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "fake pdf content", string(content))
 }
 
 func TestRunDownload_CustomOutputFile(t *testing.T) {
+	t.Parallel()
 	server := mockDownloadServer(t)
 	defer server.Close()
 
@@ -173,13 +177,13 @@ func TestRunDownload_CustomOutputFile(t *testing.T) {
 		outputFile: outputPath,
 	}
 
-	err := runDownload("att123", opts)
-	require.NoError(t, err)
+	err := runDownload(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
 
 	// Verify file was created with custom name
-	content, err := os.ReadFile(outputPath)
-	require.NoError(t, err)
-	assert.Equal(t, "fake pdf content", string(content))
+	content, err := os.ReadFile(outputPath) //nolint:gosec // reading test output file
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "fake pdf content", string(content))
 }
 
 func TestRunDownload_FileExists_NoForce(t *testing.T) {
@@ -193,8 +197,8 @@ func TestRunDownload_FileExists_NoForce(t *testing.T) {
 
 	// Create existing file
 	existingFile := filepath.Join(tmpDir, "document.pdf")
-	err := os.WriteFile(existingFile, []byte("existing content"), 0644)
-	require.NoError(t, err)
+	err := os.WriteFile(existingFile, []byte("existing content"), 0600)
+	testutil.RequireNoError(t, err)
 
 	rootOpts := newDownloadTestRootOptions()
 	client := api.NewClient(server.URL, "test@example.com", "token")
@@ -205,14 +209,14 @@ func TestRunDownload_FileExists_NoForce(t *testing.T) {
 		force:   false,
 	}
 
-	err = runDownload("att123", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "file already exists")
-	assert.Contains(t, err.Error(), "--force")
+	err = runDownload(context.Background(), "att123", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "file already exists")
+	testutil.Contains(t, err.Error(), "--force")
 
 	// Verify original file was not overwritten
-	content, _ := os.ReadFile(existingFile)
-	assert.Equal(t, "existing content", string(content))
+	content, _ := os.ReadFile(existingFile) //nolint:gosec // reading test fixture file
+	testutil.Equal(t, "existing content", string(content))
 }
 
 func TestRunDownload_FileExists_WithForce(t *testing.T) {
@@ -226,8 +230,8 @@ func TestRunDownload_FileExists_WithForce(t *testing.T) {
 
 	// Create existing file
 	existingFile := filepath.Join(tmpDir, "document.pdf")
-	err := os.WriteFile(existingFile, []byte("existing content"), 0644)
-	require.NoError(t, err)
+	err := os.WriteFile(existingFile, []byte("existing content"), 0600)
+	testutil.RequireNoError(t, err)
 
 	rootOpts := newDownloadTestRootOptions()
 	client := api.NewClient(server.URL, "test@example.com", "token")
@@ -238,16 +242,17 @@ func TestRunDownload_FileExists_WithForce(t *testing.T) {
 		force:   true,
 	}
 
-	err = runDownload("att123", opts)
-	require.NoError(t, err)
+	err = runDownload(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
 
 	// Verify file was overwritten
-	content, _ := os.ReadFile(existingFile)
-	assert.Equal(t, "fake pdf content", string(content))
+	content, _ := os.ReadFile(existingFile) //nolint:gosec // reading test fixture file
+	testutil.Equal(t, "fake pdf content", string(content))
 }
 
 func TestRunDownload_AttachmentNotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message": "Attachment not found"}`))
 	}))
@@ -261,9 +266,9 @@ func TestRunDownload_AttachmentNotFound(t *testing.T) {
 		Options: rootOpts,
 	}
 
-	err := runDownload("nonexistent", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get attachment info")
+	err := runDownload(context.Background(), "nonexistent", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "getting attachment info")
 }
 
 func TestRunDownload_DownloadFailed(t *testing.T) {
@@ -295,12 +300,13 @@ func TestRunDownload_DownloadFailed(t *testing.T) {
 		Options: rootOpts,
 	}
 
-	err := runDownload("att123", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to download attachment")
+	err := runDownload(context.Background(), "att123", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "downloading attachment")
 }
 
 func TestRunDownload_InvalidFilename(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		filename string
@@ -312,7 +318,8 @@ func TestRunDownload_InvalidFilename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte(`{
 					"id": "att123",
@@ -330,9 +337,9 @@ func TestRunDownload_InvalidFilename(t *testing.T) {
 				Options: rootOpts,
 			}
 
-			err := runDownload("att123", opts)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid attachment filename")
+			err := runDownload(context.Background(), "att123", opts)
+			testutil.RequireError(t, err)
+			testutil.Contains(t, err.Error(), "invalid attachment filename")
 		})
 	}
 }
@@ -369,14 +376,14 @@ func TestRunDownload_PathTraversalPrevented(t *testing.T) {
 		Options: rootOpts,
 	}
 
-	err := runDownload("att123", opts)
-	require.NoError(t, err)
+	err := runDownload(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
 
 	// File should be saved as just "passwd" (the base name), not a path traversal
 	_, err = os.Stat(filepath.Join(tmpDir, "passwd"))
-	assert.NoError(t, err, "file should be saved as 'passwd' in current directory")
+	testutil.NoError(t, err)
 
 	// Should NOT have created file outside tmpDir
 	_, err = os.Stat("/etc/passwd-test")
-	assert.True(t, os.IsNotExist(err) || err != nil, "should not write outside current directory")
+	testutil.True(t, os.IsNotExist(err) || err != nil, "should not write outside current directory")
 }

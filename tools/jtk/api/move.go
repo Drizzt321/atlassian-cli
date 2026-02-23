@@ -1,6 +1,7 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -13,11 +14,11 @@ type MoveIssuesRequest struct {
 
 // MoveIssuesSourceSpec specifies which issues to move and how to map fields
 type MoveIssuesSourceSpec struct {
-	IssueIdsOrKeys        []string               `json:"issueIdsOrKeys"`
-	InferFieldDefaults    bool                   `json:"inferFieldDefaults"`
-	InferStatusDefaults   bool                   `json:"inferStatusDefaults"`
-	TargetStatus          []StatusMapping        `json:"targetStatus,omitempty"`
-	TargetMandatoryFields map[string]interface{} `json:"targetMandatoryFields,omitempty"`
+	IssueIdsOrKeys        []string        `json:"issueIdsOrKeys"` //nolint:revive // JSON field name matches Jira API
+	InferFieldDefaults    bool            `json:"inferFieldDefaults"`
+	InferStatusDefaults   bool            `json:"inferStatusDefaults"`
+	TargetStatus          []StatusMapping `json:"targetStatus,omitempty"`
+	TargetMandatoryFields map[string]any  `json:"targetMandatoryFields,omitempty"`
 }
 
 // StatusMapping maps source status to target status
@@ -56,83 +57,83 @@ type MoveFailedIssue struct {
 
 // MoveIssues moves issues to a target project/issue type (Jira Cloud only)
 // This is an asynchronous operation that returns a task ID
-func (c *Client) MoveIssues(req MoveIssuesRequest) (*MoveIssuesResponse, error) {
+func (c *Client) MoveIssues(ctx context.Context, req MoveIssuesRequest) (*MoveIssuesResponse, error) {
 	urlStr := fmt.Sprintf("%s/bulk/issues/move", c.BaseURL)
 
-	body, err := c.post(urlStr, req)
+	body, err := c.Post(ctx, urlStr, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("moving issues: %w", err)
 	}
 
 	var resp MoveIssuesResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse move response: %w", err)
+		return nil, fmt.Errorf("parsing move response: %w", err)
 	}
 
 	return &resp, nil
 }
 
 // GetMoveTaskStatus gets the status of a move task
-func (c *Client) GetMoveTaskStatus(taskID string) (*MoveTaskStatus, error) {
+func (c *Client) GetMoveTaskStatus(ctx context.Context, taskID string) (*MoveTaskStatus, error) {
 	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
+		return nil, ErrTaskIDRequired
 	}
 
 	// Status endpoint is /bulk/queue/{taskId}
 	urlStr := fmt.Sprintf("%s/bulk/queue/%s", c.BaseURL, taskID)
 
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching move task status: %w", err)
 	}
 
 	var status MoveTaskStatus
 	if err := json.Unmarshal(body, &status); err != nil {
-		return nil, fmt.Errorf("failed to parse task status: %w", err)
+		return nil, fmt.Errorf("parsing task status: %w", err)
 	}
 
 	return &status, nil
 }
 
 // GetProjectIssueTypes returns the issue types available in a project
-func (c *Client) GetProjectIssueTypes(projectKey string) ([]IssueType, error) {
+func (c *Client) GetProjectIssueTypes(ctx context.Context, projectKey string) ([]IssueType, error) {
 	if projectKey == "" {
-		return nil, fmt.Errorf("project key is required")
+		return nil, ErrProjectKeyRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/project/%s", c.BaseURL, projectKey)
 
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching project issue types: %w", err)
 	}
 
 	var project struct {
 		IssueTypes []IssueType `json:"issueTypes"`
 	}
 	if err := json.Unmarshal(body, &project); err != nil {
-		return nil, fmt.Errorf("failed to parse project: %w", err)
+		return nil, fmt.Errorf("parsing project: %w", err)
 	}
 
 	return project.IssueTypes, nil
 }
 
 // GetProjectStatuses returns the statuses available in a project
-func (c *Client) GetProjectStatuses(projectKey string) ([]ProjectStatus, error) {
+func (c *Client) GetProjectStatuses(ctx context.Context, projectKey string) ([]ProjectStatus, error) {
 	if projectKey == "" {
-		return nil, fmt.Errorf("project key is required")
+		return nil, ErrProjectKeyRequired
 	}
 
 	urlStr := fmt.Sprintf("%s/project/%s/statuses", c.BaseURL, projectKey)
 
-	body, err := c.get(urlStr)
+	body, err := c.Get(ctx, urlStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching project statuses: %w", err)
 	}
 
 	var statuses []ProjectStatus
 	if err := json.Unmarshal(body, &statuses); err != nil {
-		return nil, fmt.Errorf("failed to parse statuses: %w", err)
+		return nil, fmt.Errorf("parsing statuses: %w", err)
 	}
 
 	return statuses, nil

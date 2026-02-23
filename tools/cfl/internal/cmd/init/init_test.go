@@ -2,32 +2,33 @@ package init
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/open-cli-collective/atlassian-go/testutil"
 	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
 	"github.com/open-cli-collective/confluence-cli/internal/config"
 )
 
 func TestVerifyConnection_Success(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify the request
-		assert.Equal(t, "/api/v2/spaces", r.URL.Path)
-		assert.Equal(t, "1", r.URL.Query().Get("limit"))
-		assert.Equal(t, "application/json", r.Header.Get("Accept"))
+		testutil.Equal(t, "/api/v2/spaces", r.URL.Path)
+		testutil.Equal(t, "1", r.URL.Query().Get("limit"))
+		testutil.Equal(t, "application/json", r.Header.Get("Accept"))
 
 		// Verify basic auth is present
 		user, pass, ok := r.BasicAuth()
-		assert.True(t, ok, "basic auth should be present")
-		assert.Equal(t, "test@example.com", user)
-		assert.Equal(t, "test-token", pass)
+		testutil.True(t, ok, "basic auth should be present")
+		testutil.Equal(t, "test@example.com", user)
+		testutil.Equal(t, "test-token", pass)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results": []}`))
@@ -40,12 +41,13 @@ func TestVerifyConnection_Success(t *testing.T) {
 		APIToken: "test-token",
 	}
 
-	err := verifyConnection(cfg)
-	assert.NoError(t, err)
+	err := verifyConnection(context.Background(), cfg)
+	testutil.NoError(t, err)
 }
 
 func TestVerifyConnection_Unauthorized(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"message": "Unauthorized"}`))
 	}))
@@ -57,14 +59,15 @@ func TestVerifyConnection_Unauthorized(t *testing.T) {
 		APIToken: "wrong-token",
 	}
 
-	err := verifyConnection(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "authentication failed")
-	assert.Contains(t, err.Error(), "email and API token")
+	err := verifyConnection(context.Background(), cfg)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "authentication failed")
+	testutil.Contains(t, err.Error(), "email and API token")
 }
 
 func TestVerifyConnection_Forbidden(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"message": "Forbidden"}`))
 	}))
@@ -76,14 +79,15 @@ func TestVerifyConnection_Forbidden(t *testing.T) {
 		APIToken: "token-no-perms",
 	}
 
-	err := verifyConnection(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "access denied")
-	assert.Contains(t, err.Error(), "permissions")
+	err := verifyConnection(context.Background(), cfg)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "access denied")
+	testutil.Contains(t, err.Error(), "permissions")
 }
 
 func TestVerifyConnection_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -94,24 +98,26 @@ func TestVerifyConnection_ServerError(t *testing.T) {
 		APIToken: "test-token",
 	}
 
-	err := verifyConnection(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unexpected status code: 500")
+	err := verifyConnection(context.Background(), cfg)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "unexpected status code: 500")
 }
 
 func TestVerifyConnection_NetworkError(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		URL:      "http://localhost:99999", // Non-existent server
 		Email:    "test@example.com",
 		APIToken: "test-token",
 	}
 
-	err := verifyConnection(cfg)
-	require.Error(t, err)
+	err := verifyConnection(context.Background(), cfg)
+	testutil.RequireError(t, err)
 	// Should fail to connect
 }
 
 func TestVerifyConnection_StatusCodes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		statusCode int
@@ -157,7 +163,8 @@ func TestVerifyConnection_StatusCodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.statusCode)
 			}))
 			defer server.Close()
@@ -168,18 +175,19 @@ func TestVerifyConnection_StatusCodes(t *testing.T) {
 				APIToken: "test-token",
 			}
 
-			err := verifyConnection(cfg)
+			err := verifyConnection(context.Background(), cfg)
 			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errContain)
+				testutil.RequireError(t, err)
+				testutil.Contains(t, err.Error(), tt.errContain)
 			} else {
-				assert.NoError(t, err)
+				testutil.NoError(t, err)
 			}
 		})
 	}
 }
 
 func TestConfigFilePermissions(t *testing.T) {
+	t.Parallel()
 	// Create a temp directory
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yml")
@@ -192,19 +200,20 @@ func TestConfigFilePermissions(t *testing.T) {
 
 	// Save the config
 	err := cfg.Save(configPath)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Check the file permissions
 	info, err := os.Stat(configPath)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// On Unix, permissions should be 0600 (user read/write only)
 	// The exact mode includes the file type bits, so we mask with 0777
 	perm := info.Mode().Perm()
-	assert.Equal(t, os.FileMode(0600), perm, "config file should have 0600 permissions")
+	testutil.Equal(t, perm, os.FileMode(0600))
 }
 
 func TestConfigFilePermissions_DirectoryCreation(t *testing.T) {
+	t.Parallel()
 	// Create a temp directory with nested path
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "nested", "deeply", "config.yml")
@@ -217,19 +226,20 @@ func TestConfigFilePermissions_DirectoryCreation(t *testing.T) {
 
 	// Save should create the directory structure
 	err := cfg.Save(configPath)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Verify file exists
 	_, err = os.Stat(configPath)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Verify directory was created
 	dirInfo, err := os.Stat(filepath.Dir(configPath))
-	require.NoError(t, err)
-	assert.True(t, dirInfo.IsDir())
+	testutil.RequireNoError(t, err)
+	testutil.True(t, dirInfo.IsDir())
 }
 
 func TestInitCommand_Flags(t *testing.T) {
+	t.Parallel()
 	// Create root command with init registered
 	rootCmd := &cobra.Command{
 		Use:   "cfl",
@@ -247,23 +257,23 @@ func TestInitCommand_Flags(t *testing.T) {
 
 	// Find the init command
 	initCmd, _, err := rootCmd.Find([]string{"init"})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Verify command structure
-	assert.Equal(t, "init", initCmd.Use)
-	assert.NotEmpty(t, initCmd.Short)
-	assert.NotEmpty(t, initCmd.Long)
+	testutil.Equal(t, "init", initCmd.Use)
+	testutil.NotEmpty(t, initCmd.Short)
+	testutil.NotEmpty(t, initCmd.Long)
 
 	// Verify flags exist
 	urlFlag := initCmd.Flags().Lookup("url")
-	require.NotNil(t, urlFlag)
-	assert.Equal(t, "", urlFlag.DefValue)
+	testutil.NotNil(t, urlFlag)
+	testutil.Equal(t, "", urlFlag.DefValue)
 
 	emailFlag := initCmd.Flags().Lookup("email")
-	require.NotNil(t, emailFlag)
-	assert.Equal(t, "", emailFlag.DefValue)
+	testutil.NotNil(t, emailFlag)
+	testutil.Equal(t, "", emailFlag.DefValue)
 
 	noVerifyFlag := initCmd.Flags().Lookup("no-verify")
-	require.NotNil(t, noVerifyFlag)
-	assert.Equal(t, "false", noVerifyFlag.DefValue)
+	testutil.NotNil(t, noVerifyFlag)
+	testutil.Equal(t, "false", noVerifyFlag.DefValue)
 }

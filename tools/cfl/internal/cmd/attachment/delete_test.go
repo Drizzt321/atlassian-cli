@@ -2,20 +2,20 @@ package attachment
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/confluence-cli/api"
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
 )
 
 // mockAttachmentServer creates a test server that handles attachment get and delete
-func mockAttachmentServer(t *testing.T, getHandler, deleteHandler func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
+func mockAttachmentServer(_ *testing.T, getHandler, deleteHandler func(w http.ResponseWriter, r *http.Request)) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v2/attachments/") {
 			if getHandler != nil {
@@ -51,9 +51,10 @@ func newTestRootOptions() *root.Options {
 }
 
 func TestRunDeleteAttachment_ForceDelete(t *testing.T) {
+	t.Parallel()
 	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "DELETE", r.Method)
-		assert.Equal(t, "/api/v2/attachments/att123", r.URL.Path)
+		testutil.Equal(t, "DELETE", r.Method)
+		testutil.Equal(t, "/api/v2/attachments/att123", r.URL.Path)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	defer server.Close()
@@ -67,13 +68,14 @@ func TestRunDeleteAttachment_ForceDelete(t *testing.T) {
 		force:   true,
 	}
 
-	err := runDeleteAttachment("att123", opts)
-	require.NoError(t, err)
+	err := runDeleteAttachment(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
 }
 
 func TestRunDeleteAttachment_ConfirmWithY(t *testing.T) {
+	t.Parallel()
 	deleted := false
-	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		deleted = true
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -89,14 +91,15 @@ func TestRunDeleteAttachment_ConfirmWithY(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDeleteAttachment("att123", opts)
-	require.NoError(t, err)
-	assert.True(t, deleted, "attachment should have been deleted")
+	err := runDeleteAttachment(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
+	testutil.True(t, deleted, "attachment should have been deleted")
 }
 
 func TestRunDeleteAttachment_ConfirmWithUpperY(t *testing.T) {
+	t.Parallel()
 	deleted := false
-	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		deleted = true
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -112,14 +115,15 @@ func TestRunDeleteAttachment_ConfirmWithUpperY(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDeleteAttachment("att123", opts)
-	require.NoError(t, err)
-	assert.True(t, deleted, "attachment should have been deleted")
+	err := runDeleteAttachment(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
+	testutil.True(t, deleted, "attachment should have been deleted")
 }
 
 func TestRunDeleteAttachment_CancelWithN(t *testing.T) {
+	t.Parallel()
 	deleted := false
-	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		deleted = true
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -135,14 +139,15 @@ func TestRunDeleteAttachment_CancelWithN(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDeleteAttachment("att123", opts)
-	require.NoError(t, err)
-	assert.False(t, deleted, "attachment should NOT have been deleted")
+	err := runDeleteAttachment(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
+	testutil.False(t, deleted, "attachment should NOT have been deleted")
 }
 
 func TestRunDeleteAttachment_CancelWithEmpty(t *testing.T) {
+	t.Parallel()
 	deleted := false
-	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		deleted = true
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -158,14 +163,15 @@ func TestRunDeleteAttachment_CancelWithEmpty(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDeleteAttachment("att123", opts)
-	require.NoError(t, err)
-	assert.False(t, deleted, "attachment should NOT have been deleted")
+	err := runDeleteAttachment(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
+	testutil.False(t, deleted, "attachment should NOT have been deleted")
 }
 
 func TestRunDeleteAttachment_CancelWithOther(t *testing.T) {
+	t.Parallel()
 	deleted := false
-	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+	server := mockAttachmentServer(t, nil, func(w http.ResponseWriter, _ *http.Request) {
 		deleted = true
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -181,14 +187,15 @@ func TestRunDeleteAttachment_CancelWithOther(t *testing.T) {
 		force:   false,
 	}
 
-	err := runDeleteAttachment("att123", opts)
-	require.NoError(t, err)
-	assert.False(t, deleted, "attachment should NOT have been deleted")
+	err := runDeleteAttachment(context.Background(), "att123", opts)
+	testutil.RequireNoError(t, err)
+	testutil.False(t, deleted, "attachment should NOT have been deleted")
 }
 
 func TestRunDeleteAttachment_GetAttachmentFails(t *testing.T) {
+	t.Parallel()
 	server := mockAttachmentServer(t,
-		func(w http.ResponseWriter, r *http.Request) {
+		func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"message": "Attachment not found"}`))
 		},
@@ -205,14 +212,15 @@ func TestRunDeleteAttachment_GetAttachmentFails(t *testing.T) {
 		force:   true,
 	}
 
-	err := runDeleteAttachment("invalid", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get attachment")
+	err := runDeleteAttachment(context.Background(), "invalid", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "getting attachment")
 }
 
 func TestRunDeleteAttachment_DeleteFails(t *testing.T) {
+	t.Parallel()
 	server := mockAttachmentServer(t, nil,
-		func(w http.ResponseWriter, r *http.Request) {
+		func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"message": "Permission denied"}`))
 		},
@@ -228,7 +236,7 @@ func TestRunDeleteAttachment_DeleteFails(t *testing.T) {
 		force:   true,
 	}
 
-	err := runDeleteAttachment("att123", opts)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to delete attachment")
+	err := runDeleteAttachment(context.Background(), "att123", opts)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "deleting attachment")
 }

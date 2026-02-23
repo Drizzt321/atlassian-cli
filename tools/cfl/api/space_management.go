@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
@@ -75,12 +75,12 @@ func (r *v1SpaceResponse) toSpace() *Space {
 func (c *Client) CreateSpace(ctx context.Context, req *CreateSpaceRequest) (*Space, error) {
 	body, err := c.Post(ctx, "/api/v2/spaces", req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating space: %w", err)
 	}
 
 	var space Space
 	if err := json.Unmarshal(body, &space); err != nil {
-		return nil, fmt.Errorf("failed to parse create space response: %w", err)
+		return nil, fmt.Errorf("parsing create space response: %w", err)
 	}
 
 	return &space, nil
@@ -92,12 +92,12 @@ func (c *Client) UpdateSpace(ctx context.Context, spaceKey string, req *UpdateSp
 	path := fmt.Sprintf("/rest/api/space/%s", spaceKey)
 	body, err := c.Put(ctx, path, req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("updating space: %w", err)
 	}
 
 	var response v1SpaceResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse update space response: %w", err)
+		return nil, fmt.Errorf("parsing update space response: %w", err)
 	}
 
 	return response.toSpace(), nil
@@ -109,5 +109,8 @@ func (c *Client) UpdateSpace(ctx context.Context, spaceKey string, req *UpdateSp
 func (c *Client) DeleteSpace(ctx context.Context, spaceKey string) error {
 	path := fmt.Sprintf("/rest/api/space/%s", spaceKey)
 	_, err := c.Delete(ctx, path)
-	return err
+	if err != nil {
+		return fmt.Errorf("deleting space %s: %w", spaceKey, err)
+	}
+	return nil
 }

@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name is intentional
 
 import (
 	"context"
@@ -8,17 +8,17 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 )
 
 func TestClient_ListPages(t *testing.T) {
+	t.Parallel()
 	testData := loadTestData(t, "pages.json")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v2/spaces/123456/pages", r.URL.Path)
-		assert.Equal(t, "GET", r.Method)
-		assert.Equal(t, "25", r.URL.Query().Get("limit"))
+		testutil.Equal(t, "/api/v2/spaces/123456/pages", r.URL.Path)
+		testutil.Equal(t, "GET", r.Method)
+		testutil.Equal(t, "25", r.URL.Query().Get("limit"))
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(testData)
@@ -28,22 +28,23 @@ func TestClient_ListPages(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	result, err := client.ListPages(context.Background(), "123456", nil)
 
-	require.NoError(t, err)
-	assert.Len(t, result.Results, 2)
-	assert.True(t, result.HasMore())
+	testutil.RequireNoError(t, err)
+	testutil.Len(t, result.Results, 2)
+	testutil.True(t, result.HasMore())
 
 	// Check first page
 	page := result.Results[0]
-	assert.Equal(t, "98765", page.ID)
-	assert.Equal(t, "Getting Started Guide", page.Title)
-	assert.Equal(t, "123456", page.SpaceID)
+	testutil.Equal(t, "98765", page.ID)
+	testutil.Equal(t, "Getting Started Guide", page.Title)
+	testutil.Equal(t, "123456", page.SpaceID)
 }
 
 func TestClient_ListPages_WithOptions(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "50", r.URL.Query().Get("limit"))
-		assert.Equal(t, "current", r.URL.Query().Get("status"))
-		assert.Equal(t, "title", r.URL.Query().Get("sort"))
+		testutil.Equal(t, "50", r.URL.Query().Get("limit"))
+		testutil.Equal(t, "current", r.URL.Query().Get("status"))
+		testutil.Equal(t, "title", r.URL.Query().Get("sort"))
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results": []}`))
@@ -57,15 +58,16 @@ func TestClient_ListPages_WithOptions(t *testing.T) {
 		Sort:   "title",
 	}
 	_, err := client.ListPages(context.Background(), "123456", opts)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }
 
 func TestClient_GetPage(t *testing.T) {
+	t.Parallel()
 	testData := loadTestData(t, "page.json")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v2/pages/98765", r.URL.Path)
-		assert.Equal(t, "GET", r.Method)
+		testutil.Equal(t, "/api/v2/pages/98765", r.URL.Path)
+		testutil.Equal(t, "GET", r.Method)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(testData)
@@ -75,19 +77,20 @@ func TestClient_GetPage(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	page, err := client.GetPage(context.Background(), "98765", nil)
 
-	require.NoError(t, err)
-	assert.Equal(t, "98765", page.ID)
-	assert.Equal(t, "Getting Started Guide", page.Title)
-	assert.Equal(t, "123456", page.SpaceID)
-	assert.Equal(t, 5, page.Version.Number)
-	assert.NotNil(t, page.Body)
-	assert.NotNil(t, page.Body.Storage)
-	assert.Contains(t, page.Body.Storage.Value, "<h1>Getting Started</h1>")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "98765", page.ID)
+	testutil.Equal(t, "Getting Started Guide", page.Title)
+	testutil.Equal(t, "123456", page.SpaceID)
+	testutil.Equal(t, 5, page.Version.Number)
+	testutil.NotNil(t, page.Body)
+	testutil.NotNil(t, page.Body.Storage)
+	testutil.Contains(t, page.Body.Storage.Value, "<h1>Getting Started</h1>")
 }
 
 func TestClient_GetPage_WithBodyFormat(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "storage", r.URL.Query().Get("body-format"))
+		testutil.Equal(t, "storage", r.URL.Query().Get("body-format"))
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id": "98765", "title": "Test"}`))
@@ -97,26 +100,27 @@ func TestClient_GetPage_WithBodyFormat(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	opts := &GetPageOptions{BodyFormat: "storage"}
 	_, err := client.GetPage(context.Background(), "98765", opts)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }
 
 func TestClient_CreatePage(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v2/pages", r.URL.Path)
-		assert.Equal(t, "POST", r.Method)
+		testutil.Equal(t, "/api/v2/pages", r.URL.Path)
+		testutil.Equal(t, "POST", r.Method)
 
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
 		var req CreatePageRequest
 		err = json.Unmarshal(body, &req)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		assert.Equal(t, "123456", req.SpaceID)
-		assert.Equal(t, "New Page", req.Title)
-		assert.NotNil(t, req.Body)
-		assert.NotNil(t, req.Body.Storage)
-		assert.Equal(t, "<p>Content</p>", req.Body.Storage.Value)
+		testutil.Equal(t, "123456", req.SpaceID)
+		testutil.Equal(t, "New Page", req.Title)
+		testutil.NotNil(t, req.Body)
+		testutil.NotNil(t, req.Body.Storage)
+		testutil.Equal(t, "<p>Content</p>", req.Body.Storage.Value)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -141,26 +145,27 @@ func TestClient_CreatePage(t *testing.T) {
 	}
 	page, err := client.CreatePage(context.Background(), req)
 
-	require.NoError(t, err)
-	assert.Equal(t, "99999", page.ID)
-	assert.Equal(t, "New Page", page.Title)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "99999", page.ID)
+	testutil.Equal(t, "New Page", page.Title)
 }
 
 func TestClient_UpdatePage(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v2/pages/98765", r.URL.Path)
-		assert.Equal(t, "PUT", r.Method)
+		testutil.Equal(t, "/api/v2/pages/98765", r.URL.Path)
+		testutil.Equal(t, "PUT", r.Method)
 
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
 		var req UpdatePageRequest
 		err = json.Unmarshal(body, &req)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		assert.Equal(t, "98765", req.ID)
-		assert.Equal(t, "Updated Title", req.Title)
-		assert.Equal(t, 6, req.Version.Number)
+		testutil.Equal(t, "98765", req.ID)
+		testutil.Equal(t, "Updated Title", req.Title)
+		testutil.Equal(t, 6, req.Version.Number)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -186,15 +191,16 @@ func TestClient_UpdatePage(t *testing.T) {
 	}
 	page, err := client.UpdatePage(context.Background(), "98765", req)
 
-	require.NoError(t, err)
-	assert.Equal(t, "Updated Title", page.Title)
-	assert.Equal(t, 6, page.Version.Number)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "Updated Title", page.Title)
+	testutil.Equal(t, 6, page.Version.Number)
 }
 
 func TestClient_DeletePage(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v2/pages/98765", r.URL.Path)
-		assert.Equal(t, "DELETE", r.Method)
+		testutil.Equal(t, "/api/v2/pages/98765", r.URL.Path)
+		testutil.Equal(t, "DELETE", r.Method)
 
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -203,13 +209,14 @@ func TestClient_DeletePage(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	err := client.DeletePage(context.Background(), "98765")
 
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }
 
 func TestClient_MovePage_Success(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/rest/api/content/12345/move/append/67890", r.URL.Path)
-		assert.Equal(t, "PUT", r.Method)
+		testutil.Equal(t, "/rest/api/content/12345/move/append/67890", r.URL.Path)
+		testutil.Equal(t, "PUT", r.Method)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{}`))
@@ -219,11 +226,12 @@ func TestClient_MovePage_Success(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	err := client.MovePage(context.Background(), "12345", "67890")
 
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }
 
 func TestClient_MovePage_NotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message": "Page not found"}`))
 	}))
@@ -232,11 +240,12 @@ func TestClient_MovePage_NotFound(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	err := client.MovePage(context.Background(), "99999", "67890")
 
-	require.Error(t, err)
+	testutil.RequireError(t, err)
 }
 
 func TestClient_MovePage_PermissionDenied(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"message": "You do not have permission to move this page"}`))
 	}))
@@ -245,31 +254,32 @@ func TestClient_MovePage_PermissionDenied(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	err := client.MovePage(context.Background(), "12345", "67890")
 
-	require.Error(t, err)
+	testutil.RequireError(t, err)
 }
 
 func TestClient_CopyPage_Success(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/rest/api/content/12345/copy", r.URL.Path)
-		assert.Equal(t, "POST", r.Method)
+		testutil.Equal(t, "/rest/api/content/12345/copy", r.URL.Path)
+		testutil.Equal(t, "POST", r.Method)
 
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		var req map[string]interface{}
+		var req map[string]any
 		err = json.Unmarshal(body, &req)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		assert.Equal(t, "New Title", req["pageTitle"])
-		assert.Equal(t, true, req["copyAttachments"])
-		assert.Equal(t, true, req["copyPermissions"])
-		assert.Equal(t, true, req["copyProperties"])
-		assert.Equal(t, true, req["copyLabels"])
-		assert.Equal(t, true, req["copyCustomContents"])
+		testutil.Equal(t, "New Title", req["pageTitle"])
+		testutil.Equal(t, true, req["copyAttachments"])
+		testutil.Equal(t, true, req["copyPermissions"])
+		testutil.Equal(t, true, req["copyProperties"])
+		testutil.Equal(t, true, req["copyLabels"])
+		testutil.Equal(t, true, req["copyCustomContents"])
 
-		dest := req["destination"].(map[string]interface{})
-		assert.Equal(t, "space", dest["type"])
-		assert.Equal(t, "TEST", dest["value"])
+		dest := req["destination"].(map[string]any)
+		testutil.Equal(t, "space", dest["type"])
+		testutil.Equal(t, "TEST", dest["value"])
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -296,32 +306,35 @@ func TestClient_CopyPage_Success(t *testing.T) {
 	}
 
 	page, err := client.CopyPage(context.Background(), "12345", opts)
-	require.NoError(t, err)
-	assert.Equal(t, "99999", page.ID)
-	assert.Equal(t, "New Title", page.Title)
-	assert.Equal(t, "TEST", page.SpaceID)
-	assert.Equal(t, 1, page.Version.Number)
-	assert.Equal(t, "/spaces/TEST/pages/99999", page.Links.WebUI)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "99999", page.ID)
+	testutil.Equal(t, "New Title", page.Title)
+	testutil.Equal(t, "TEST", page.SpaceID)
+	testutil.Equal(t, 1, page.Version.Number)
+	testutil.Equal(t, "/spaces/TEST/pages/99999", page.Links.WebUI)
 }
 
 func TestClient_CopyPage_MissingTitle(t *testing.T) {
+	t.Parallel()
 	client := NewClient("http://unused", "user@example.com", "token")
 
 	_, err := client.CopyPage(context.Background(), "12345", &CopyPageOptions{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "title is required")
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "title is required")
 }
 
 func TestClient_CopyPage_NilOptions(t *testing.T) {
+	t.Parallel()
 	client := NewClient("http://unused", "user@example.com", "token")
 
 	_, err := client.CopyPage(context.Background(), "12345", nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "title is required")
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "title is required")
 }
 
 func TestClient_CopyPage_APIError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message": "Page not found"}`))
 	}))
@@ -334,19 +347,20 @@ func TestClient_CopyPage_APIError(t *testing.T) {
 	}
 
 	_, err := client.CopyPage(context.Background(), "99999", opts)
-	require.Error(t, err)
+	testutil.RequireError(t, err)
 }
 
 func TestClient_CopyPage_WithoutAttachments(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		var req map[string]interface{}
+		var req map[string]any
 		err = json.Unmarshal(body, &req)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		assert.Equal(t, false, req["copyAttachments"])
+		testutil.Equal(t, false, req["copyAttachments"])
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -367,21 +381,22 @@ func TestClient_CopyPage_WithoutAttachments(t *testing.T) {
 	}
 
 	_, err := client.CopyPage(context.Background(), "12345", opts)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }
 
 func TestClient_CopyPage_ToDifferentSpace(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		var req map[string]interface{}
+		var req map[string]any
 		err = json.Unmarshal(body, &req)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		dest := req["destination"].(map[string]interface{})
-		assert.Equal(t, "space", dest["type"])
-		assert.Equal(t, "OTHERSPACE", dest["value"])
+		dest := req["destination"].(map[string]any)
+		testutil.Equal(t, "space", dest["type"])
+		testutil.Equal(t, "OTHERSPACE", dest["value"])
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -401,21 +416,22 @@ func TestClient_CopyPage_ToDifferentSpace(t *testing.T) {
 	}
 
 	page, err := client.CopyPage(context.Background(), "12345", opts)
-	require.NoError(t, err)
-	assert.Equal(t, "OTHERSPACE", page.SpaceID)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "OTHERSPACE", page.SpaceID)
 }
 
 func TestClient_CopyPage_WithoutLabels(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		var req map[string]interface{}
+		var req map[string]any
 		err = json.Unmarshal(body, &req)
-		require.NoError(t, err)
+		testutil.RequireNoError(t, err)
 
-		assert.Equal(t, false, req["copyLabels"])
-		assert.Equal(t, true, req["copyAttachments"]) // others should still be true
+		testutil.Equal(t, false, req["copyLabels"])
+		testutil.Equal(t, true, req["copyAttachments"]) // others should still be true
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -437,11 +453,12 @@ func TestClient_CopyPage_WithoutLabels(t *testing.T) {
 	}
 
 	_, err := client.CopyPage(context.Background(), "12345", opts)
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 }
 
 func TestClient_UpdatePage_VersionConflict(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{
 			"message": "Version conflict: expected version 5 but page is at version 6",
@@ -459,12 +476,13 @@ func TestClient_UpdatePage_VersionConflict(t *testing.T) {
 	}
 
 	_, err := client.UpdatePage(context.Background(), "98765", req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "conflict")
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "conflict")
 }
 
 func TestClient_GetPage_MissingBody(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"id": "98765",
@@ -478,14 +496,15 @@ func TestClient_GetPage_MissingBody(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	page, err := client.GetPage(context.Background(), "98765", nil)
 
-	require.NoError(t, err)
-	assert.Equal(t, "98765", page.ID)
-	assert.Equal(t, "Page Without Body", page.Title)
-	assert.Nil(t, page.Body)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, "98765", page.ID)
+	testutil.Equal(t, "Page Without Body", page.Title)
+	testutil.Nil(t, page.Body)
 }
 
 func TestClient_GetPage_EmptyBodyStorage(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"id": "98765",
@@ -502,19 +521,20 @@ func TestClient_GetPage_EmptyBodyStorage(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	page, err := client.GetPage(context.Background(), "98765", nil)
 
-	require.NoError(t, err)
-	assert.NotNil(t, page.Body)
-	assert.Nil(t, page.Body.Storage)
+	testutil.RequireNoError(t, err)
+	testutil.NotNil(t, page.Body)
+	testutil.Nil(t, page.Body.Storage)
 }
 
 func TestClient_ListPages_WithCursor(t *testing.T) {
+	t.Parallel()
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 
 		if callCount == 1 {
 			// First call - return results with cursor
-			assert.Empty(t, r.URL.Query().Get("cursor"))
+			testutil.Empty(t, r.URL.Query().Get("cursor"))
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{
 				"results": [{"id": "1", "title": "Page 1"}],
@@ -522,7 +542,7 @@ func TestClient_ListPages_WithCursor(t *testing.T) {
 			}`))
 		} else {
 			// Second call - verify cursor is passed
-			assert.Equal(t, "abc123", r.URL.Query().Get("cursor"))
+			testutil.Equal(t, "abc123", r.URL.Query().Get("cursor"))
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{
 				"results": [{"id": "2", "title": "Page 2"}],
@@ -536,20 +556,21 @@ func TestClient_ListPages_WithCursor(t *testing.T) {
 
 	// First request
 	result1, err := client.ListPages(context.Background(), "123", nil)
-	require.NoError(t, err)
-	assert.True(t, result1.HasMore())
+	testutil.RequireNoError(t, err)
+	testutil.True(t, result1.HasMore())
 
 	// Second request with cursor
 	opts := &ListPagesOptions{Cursor: "abc123"}
 	result2, err := client.ListPages(context.Background(), "123", opts)
-	require.NoError(t, err)
-	assert.False(t, result2.HasMore())
+	testutil.RequireNoError(t, err)
+	testutil.False(t, result2.HasMore())
 
-	assert.Equal(t, 2, callCount)
+	testutil.Equal(t, 2, callCount)
 }
 
 func TestClient_ListPages_EmptyResults(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results": []}`))
 	}))
@@ -558,13 +579,14 @@ func TestClient_ListPages_EmptyResults(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	result, err := client.ListPages(context.Background(), "123", nil)
 
-	require.NoError(t, err)
-	assert.Empty(t, result.Results)
-	assert.False(t, result.HasMore())
+	testutil.RequireNoError(t, err)
+	testutil.Empty(t, result.Results)
+	testutil.False(t, result.HasMore())
 }
 
 func TestClient_ListPages_NullVersion(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
 			"results": [{
@@ -580,7 +602,7 @@ func TestClient_ListPages_NullVersion(t *testing.T) {
 	client := NewClient(server.URL, "user@example.com", "token")
 	result, err := client.ListPages(context.Background(), "123", nil)
 
-	require.NoError(t, err)
-	require.Len(t, result.Results, 1)
-	assert.Nil(t, result.Results[0].Version)
+	testutil.RequireNoError(t, err)
+	testutil.Len(t, result.Results, 1)
+	testutil.Nil(t, result.Results[0].Version)
 }

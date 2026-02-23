@@ -28,8 +28,8 @@ func newDeleteCmd(rootOpts *root.Options) *cobra.Command {
   # Delete without confirmation
   cfl attachment delete att123 --force`,
 		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			return runDeleteAttachment(args[0], opts)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDeleteAttachment(cmd.Context(), args[0], opts)
 		},
 	}
 
@@ -38,22 +38,22 @@ func newDeleteCmd(rootOpts *root.Options) *cobra.Command {
 	return cmd
 }
 
-func runDeleteAttachment(attachmentID string, opts *deleteOptions) error {
+func runDeleteAttachment(ctx context.Context, attachmentID string, opts *deleteOptions) error {
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
 	}
 
-	attachment, err := client.GetAttachment(context.Background(), attachmentID)
+	attachment, err := client.GetAttachment(ctx, attachmentID)
 	if err != nil {
-		return fmt.Errorf("failed to get attachment: %w", err)
+		return fmt.Errorf("getting attachment: %w", err)
 	}
 
 	v := opts.View()
 
 	if !opts.force {
-		fmt.Printf("About to delete attachment: %s (ID: %s)\n", attachment.Title, attachment.ID)
-		fmt.Print("Are you sure? [y/N]: ")
+		_, _ = fmt.Fprintf(opts.Stderr, "About to delete attachment: %s (ID: %s)\n", attachment.Title, attachment.ID)
+		_, _ = fmt.Fprint(opts.Stderr, "Are you sure? [y/N]: ")
 
 		scanner := bufio.NewScanner(opts.Stdin)
 		var confirm string
@@ -62,13 +62,13 @@ func runDeleteAttachment(attachmentID string, opts *deleteOptions) error {
 		}
 
 		if confirm != "y" && confirm != "Y" {
-			fmt.Println("Deletion cancelled.")
+			_, _ = fmt.Fprintln(opts.Stderr, "Deletion cancelled.")
 			return nil
 		}
 	}
 
-	if err := client.DeleteAttachment(context.Background(), attachmentID); err != nil {
-		return fmt.Errorf("failed to delete attachment: %w", err)
+	if err := client.DeleteAttachment(ctx, attachmentID); err != nil {
+		return fmt.Errorf("deleting attachment: %w", err)
 	}
 
 	if opts.Output == "json" {

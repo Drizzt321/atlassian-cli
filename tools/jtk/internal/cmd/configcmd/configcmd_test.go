@@ -2,6 +2,7 @@ package configcmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
@@ -46,18 +46,18 @@ func TestShowCmd_JSONOutput(t *testing.T) {
 
 	cmd := newShowCmd(opts)
 	err := cmd.Execute()
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	stdout := opts.Stdout.(*bytes.Buffer).String()
 
 	// The entire stdout must be valid JSON — no trailing plain text
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	err = json.Unmarshal([]byte(stdout), &parsed)
-	require.NoError(t, err, "config show -o json output must be valid JSON, got: %s", stdout)
+	testutil.RequireNoError(t, err)
 
-	assert.Equal(t, "https://test.atlassian.net", parsed["url"])
-	assert.Equal(t, "test@example.com", parsed["email"])
-	assert.NotContains(t, stdout, "Config file:")
+	testutil.Equal(t, parsed["url"], "https://test.atlassian.net")
+	testutil.Equal(t, parsed["email"], "test@example.com")
+	testutil.NotContains(t, stdout, "Config file:")
 }
 
 func TestShowCmd_TableOutput(t *testing.T) {
@@ -72,16 +72,16 @@ func TestShowCmd_TableOutput(t *testing.T) {
 
 	cmd := newShowCmd(opts)
 	err := cmd.Execute()
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	stdout := opts.Stdout.(*bytes.Buffer).String()
-	assert.Contains(t, stdout, "Config file:")
-	assert.Contains(t, stdout, "test@example.com")
+	testutil.Contains(t, stdout, "Config file:")
+	testutil.Contains(t, stdout, "test@example.com")
 }
 
 func TestNewTestCmd_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Contains(t, r.URL.Path, "/myself")
+		testutil.Contains(t, r.URL.Path, "/myself")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"accountId": "123", "displayName": "Test User", "emailAddress": "test@example.com"}`))
 	}))
@@ -101,21 +101,21 @@ func TestNewTestCmd_Success(t *testing.T) {
 		Email:    "test@example.com",
 		APIToken: "token123",
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 	opts.SetAPIClient(client)
 
 	cmd := newTestCmd(opts)
 	err = cmd.Execute()
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	stdout := opts.Stdout.(*bytes.Buffer).String()
-	assert.Contains(t, stdout, "Authentication successful")
-	assert.Contains(t, stdout, "API access verified")
-	assert.Contains(t, stdout, "Test User")
+	testutil.Contains(t, stdout, "Authentication successful")
+	testutil.Contains(t, stdout, "API access verified")
+	testutil.Contains(t, stdout, "Test User")
 }
 
 func TestNewTestCmd_AuthFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"message": "Unauthorized"}`))
 	}))
@@ -135,17 +135,17 @@ func TestNewTestCmd_AuthFailure(t *testing.T) {
 		Email:    "test@example.com",
 		APIToken: "bad-token",
 	})
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 	opts.SetAPIClient(client)
 
 	cmd := newTestCmd(opts)
 	err = cmd.Execute()
 	// Command doesn't return error, it prints error message
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Error messages go to stderr
 	stderr := opts.Stderr.(*bytes.Buffer).String()
-	assert.Contains(t, stderr, "Authentication failed")
+	testutil.Contains(t, stderr, "Authentication failed")
 }
 
 func TestNewTestCmd_NoURL(t *testing.T) {
@@ -168,14 +168,15 @@ func TestNewTestCmd_NoURL(t *testing.T) {
 
 	cmd := newTestCmd(opts)
 	err := cmd.Execute()
-	require.NoError(t, err)
+	testutil.RequireNoError(t, err)
 
 	// Error messages go to stderr
 	stderr := opts.Stderr.(*bytes.Buffer).String()
-	assert.Contains(t, stderr, "No Jira URL configured")
+	testutil.Contains(t, stderr, "No Jira URL configured")
 }
 
 func TestMaskToken(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		token string
@@ -189,8 +190,9 @@ func TestMaskToken(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := maskToken(tt.token)
-			assert.Equal(t, tt.want, got)
+			testutil.Equal(t, got, tt.want)
 		})
 	}
 }
@@ -211,9 +213,9 @@ func getConfigDir(t *testing.T) string {
 
 func TestRunClear_WithConfirmation(t *testing.T) {
 	configDir := getConfigDir(t)
-	require.NoError(t, os.MkdirAll(configDir, 0700))
+	testutil.RequireNoError(t, os.MkdirAll(configDir, 0700))
 	configPath := filepath.Join(configDir, "config.json")
-	require.NoError(t, os.WriteFile(configPath, []byte(`{}`), 0600))
+	testutil.RequireNoError(t, os.WriteFile(configPath, []byte(`{}`), 0600))
 
 	opts := newTestRootOptions()
 	clearOpts := &clearOptions{
@@ -222,22 +224,22 @@ func TestRunClear_WithConfirmation(t *testing.T) {
 		stdin:   strings.NewReader("y\n"),
 	}
 
-	err := runClear(clearOpts)
-	require.NoError(t, err)
+	err := runClear(context.Background(), clearOpts)
+	testutil.RequireNoError(t, err)
 
 	// Verify file was deleted
 	_, err = os.Stat(configPath)
-	assert.True(t, os.IsNotExist(err))
+	testutil.True(t, os.IsNotExist(err))
 
 	stdout := opts.Stdout.(*bytes.Buffer).String()
-	assert.Contains(t, stdout, "Configuration file removed")
+	testutil.Contains(t, stdout, "Configuration file removed")
 }
 
 func TestRunClear_Cancelled(t *testing.T) {
 	configDir := getConfigDir(t)
-	require.NoError(t, os.MkdirAll(configDir, 0700))
+	testutil.RequireNoError(t, os.MkdirAll(configDir, 0700))
 	configPath := filepath.Join(configDir, "config.json")
-	require.NoError(t, os.WriteFile(configPath, []byte(`{}`), 0600))
+	testutil.RequireNoError(t, os.WriteFile(configPath, []byte(`{}`), 0600))
 
 	opts := newTestRootOptions()
 	clearOpts := &clearOptions{
@@ -246,19 +248,19 @@ func TestRunClear_Cancelled(t *testing.T) {
 		stdin:   strings.NewReader("n\n"),
 	}
 
-	err := runClear(clearOpts)
-	require.NoError(t, err)
+	err := runClear(context.Background(), clearOpts)
+	testutil.RequireNoError(t, err)
 
 	// Verify file still exists
 	_, err = os.Stat(configPath)
-	assert.NoError(t, err)
+	testutil.NoError(t, err)
 }
 
 func TestRunClear_Force(t *testing.T) {
 	configDir := getConfigDir(t)
-	require.NoError(t, os.MkdirAll(configDir, 0700))
+	testutil.RequireNoError(t, os.MkdirAll(configDir, 0700))
 	configPath := filepath.Join(configDir, "config.json")
-	require.NoError(t, os.WriteFile(configPath, []byte(`{}`), 0600))
+	testutil.RequireNoError(t, os.WriteFile(configPath, []byte(`{}`), 0600))
 
 	opts := newTestRootOptions()
 	clearOpts := &clearOptions{
@@ -267,12 +269,12 @@ func TestRunClear_Force(t *testing.T) {
 		stdin:   strings.NewReader(""), // No input needed with --force
 	}
 
-	err := runClear(clearOpts)
-	require.NoError(t, err)
+	err := runClear(context.Background(), clearOpts)
+	testutil.RequireNoError(t, err)
 
 	// Verify file was deleted
 	_, err = os.Stat(configPath)
-	assert.True(t, os.IsNotExist(err))
+	testutil.True(t, os.IsNotExist(err))
 }
 
 func TestGetDefaultProjectSource(t *testing.T) {
@@ -285,9 +287,9 @@ func TestGetDefaultProjectSource(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", tempDir)
 
 	// No config, no env
-	assert.Equal(t, "-", getDefaultProjectSource())
+	testutil.Equal(t, getDefaultProjectSource(), "-")
 
 	// With env var
 	t.Setenv("JIRA_DEFAULT_PROJECT", "PROJ")
-	assert.Equal(t, "env (JIRA_DEFAULT_PROJECT)", getDefaultProjectSource())
+	testutil.Equal(t, getDefaultProjectSource(), "env (JIRA_DEFAULT_PROJECT)")
 }
