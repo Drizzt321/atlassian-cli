@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 )
 
@@ -17,6 +18,18 @@ func Register(parent *cobra.Command, opts *root.Options) {
 		Aliases: []string{"board", "b"},
 		Short:   "Manage agile boards",
 		Long:    "Commands for viewing agile boards.",
+		// SupportsAgile checks AgileURL — the correct guard for Agile API commands.
+		// Non-Agile scope-restricted commands (automation, dashboards) use IsBearerAuth() instead.
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			client, err := opts.APIClient()
+			if err != nil {
+				return err
+			}
+			if !client.SupportsAgile() {
+				return api.ErrAgileUnavailable
+			}
+			return nil
+		},
 	}
 
 	cmd.AddCommand(newListCmd(opts))

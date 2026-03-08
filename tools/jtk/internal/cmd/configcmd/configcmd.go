@@ -51,8 +51,13 @@ func newShowCmd(opts *root.Options) *cobra.Command {
 			email := config.GetEmail()
 			token := config.GetAPIToken()
 			defaultProject := config.GetDefaultProject()
+			authMethod := config.GetAuthMethod()
+			cloudID := config.GetCloudID()
 
 			maskedToken := maskToken(token)
+
+			_, authMethodSource := config.GetAuthMethodWithSource()
+			_, cloudIDSource := config.GetCloudIDWithSource()
 
 			headers := []string{"KEY", "VALUE", "SOURCE"}
 			rows := [][]string{
@@ -60,6 +65,8 @@ func newShowCmd(opts *root.Options) *cobra.Command {
 				{"email", email, getEmailSource()},
 				{"api_token", maskedToken, getAPITokenSource()},
 				{"default_project", defaultProject, getDefaultProjectSource()},
+				{"auth_method", authMethod, authMethodSource},
+				{"cloud_id", cloudID, cloudIDSource},
 			}
 
 			data := map[string]string{
@@ -67,6 +74,8 @@ func newShowCmd(opts *root.Options) *cobra.Command {
 				"email":           email,
 				"api_token":       maskedToken,
 				"default_project": defaultProject,
+				"auth_method":     authMethod,
+				"cloud_id":        cloudID,
 				"path":            config.Path(),
 			}
 

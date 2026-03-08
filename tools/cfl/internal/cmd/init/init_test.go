@@ -264,7 +264,7 @@ func TestInitCommand_Flags(t *testing.T) {
 	testutil.NotEmpty(t, initCmd.Short)
 	testutil.NotEmpty(t, initCmd.Long)
 
-	// Verify flags exist
+	// Verify original flags exist
 	urlFlag := initCmd.Flags().Lookup("url")
 	testutil.NotNil(t, urlFlag)
 	testutil.Equal(t, "", urlFlag.DefValue)
@@ -276,4 +276,55 @@ func TestInitCommand_Flags(t *testing.T) {
 	noVerifyFlag := initCmd.Flags().Lookup("no-verify")
 	testutil.NotNil(t, noVerifyFlag)
 	testutil.Equal(t, "false", noVerifyFlag.DefValue)
+
+	// Verify new auth flags exist
+	authMethodFlag := initCmd.Flags().Lookup("auth-method")
+	testutil.NotNil(t, authMethodFlag)
+	testutil.Equal(t, "", authMethodFlag.DefValue)
+
+	cloudIDFlag := initCmd.Flags().Lookup("cloud-id")
+	testutil.NotNil(t, cloudIDFlag)
+	testutil.Equal(t, "", cloudIDFlag.DefValue)
+}
+
+func TestRunInit_InvalidAuthMethod(t *testing.T) {
+	t.Parallel()
+	// An invalid auth method should be rejected before the interactive form runs
+	err := runInit(context.Background(), "", "", "Bearer", "", true)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "invalid auth method")
+}
+
+func TestVerifyConnection_Bearer_EmptyCloudID(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		URL:        "https://example.atlassian.net/wiki",
+		APIToken:   "scoped-token",
+		AuthMethod: "bearer",
+		CloudID:    "",
+	}
+
+	err := verifyConnection(context.Background(), cfg)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "cloud ID is required")
+}
+
+func TestVerifyConnection_BasicAuth_Unauthorized(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message": "Unauthorized"}`))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		URL:      server.URL,
+		Email:    "bad@example.com",
+		APIToken: "wrong-token",
+	}
+
+	err := verifyConnection(context.Background(), cfg)
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "authentication failed")
+	testutil.Contains(t, err.Error(), "email and API token")
 }

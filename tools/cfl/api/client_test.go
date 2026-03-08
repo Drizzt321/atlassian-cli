@@ -3,11 +3,14 @@ package api //nolint:revive // package name is intentional
 import (
 	"context"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/open-cli-collective/atlassian-go/client"
 	"github.com/open-cli-collective/atlassian-go/testutil"
 )
 
@@ -163,4 +166,80 @@ func TestClient_URLConstruction(t *testing.T) {
 		testutil.RequireNoError(t, err)
 		testutil.Equal(t, tt.expectedPath, capturedPath)
 	}
+}
+
+func TestNewBearerClient(t *testing.T) {
+	t.Parallel()
+
+	t.Run("constructs gateway URL with /wiki suffix", func(t *testing.T) {
+		t.Parallel()
+		c, err := NewBearerClient("scoped-token", "abc-123")
+		testutil.RequireNoError(t, err)
+
+		testutil.NotNil(t, c)
+		expectedBase := fmt.Sprintf("%s/ex/confluence/abc-123/wiki", client.GatewayBaseURL)
+		testutil.Equal(t, expectedBase, c.GetBaseURL())
+	})
+
+	t.Run("uses bearer auth header", func(t *testing.T) {
+		t.Parallel()
+		c, err := NewBearerClient("my-token", "cloud-id")
+		testutil.RequireNoError(t, err)
+
+		testutil.Equal(t, "Bearer my-token", c.GetAuthHeader())
+	})
+
+	t.Run("sends bearer header in requests", func(t *testing.T) {
+		t.Parallel()
+		var capturedAuth string
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedAuth = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		}))
+		defer server.Close()
+
+		c, err := NewBearerClient("my-scoped-token", "cloud-123")
+		testutil.RequireNoError(t, err)
+		_, err = c.Get(context.Background(), server.URL+"/test")
+		testutil.RequireNoError(t, err)
+
+		testutil.Equal(t, "Bearer my-scoped-token", capturedAuth)
+	})
+
+	t.Run("empty apiToken returns error", func(t *testing.T) {
+		t.Parallel()
+		c, err := NewBearerClient("", "cloud-123")
+		testutil.RequireError(t, err)
+		testutil.Nil(t, c)
+		if !errors.Is(err, ErrAPITokenRequired) {
+			t.Errorf("got error %v, want %v", err, ErrAPITokenRequired)
+		}
+	})
+
+	t.Run("empty cloudID returns error", func(t *testing.T) {
+		t.Parallel()
+		c, err := NewBearerClient("scoped-token", "")
+		testutil.RequireError(t, err)
+		testutil.Nil(t, c)
+		if !errors.Is(err, ErrCloudIDRequired) {
+			t.Errorf("got error %v, want %v", err, ErrCloudIDRequired)
+		}
+	})
+
+	t.Run("basic auth client unchanged", func(t *testing.T) {
+		t.Parallel()
+		c := NewClient("https://example.atlassian.net/wiki", "user@example.com", "token123")
+
+		// Should still use Basic auth
+		testutil.True(t, strings.HasPrefix(c.GetAuthHeader(), "Basic "))
+		encoded := strings.TrimPrefix(c.GetAuthHeader(), "Basic ")
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		testutil.RequireNoError(t, err)
+		testutil.Equal(t, "user@example.com:token123", string(decoded))
+
+		// Base URL should be the instance URL, not gateway
+		testutil.Equal(t, "https://example.atlassian.net/wiki", c.GetBaseURL())
+	})
 }

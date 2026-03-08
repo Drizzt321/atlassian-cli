@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/open-cli-collective/atlassian-go/auth"
 	"github.com/open-cli-collective/atlassian-go/url"
 )
 
@@ -25,6 +26,8 @@ type Config struct {
 	Email          string `json:"email"`
 	APIToken       string `json:"api_token"`
 	DefaultProject string `json:"default_project,omitempty"`
+	AuthMethod     string `json:"auth_method,omitempty"` // "basic" (default) or "bearer"
+	CloudID        string `json:"cloud_id,omitempty"`    // Required for bearer auth (gateway URL)
 }
 
 // configPath returns the path to the config file
@@ -168,9 +171,75 @@ func GetAPIToken() string {
 	return cfg.APIToken
 }
 
-// IsConfigured returns true if all required config values are set
+// IsConfigured returns true if all required config values are set.
+// For bearer auth: URL + API token + Cloud ID are required (no email).
+// For basic auth: URL + email + API token are required.
 func IsConfigured() bool {
+	if GetAuthMethod() == auth.AuthMethodBearer {
+		return GetURL() != "" && GetAPIToken() != "" && GetCloudID() != ""
+	}
 	return GetURL() != "" && GetEmail() != "" && GetAPIToken() != ""
+}
+
+// GetAuthMethod returns the auth method from config or environment.
+// Precedence: JIRA_AUTH_METHOD → ATLASSIAN_AUTH_METHOD → config auth_method → "basic"
+// Invalid values are ignored and fall through to the next source.
+func GetAuthMethod() string {
+	v, _ := GetAuthMethodWithSource()
+	return v
+}
+
+// GetAuthMethodWithSource returns the auth method and its source.
+// Precedence: JIRA_AUTH_METHOD → ATLASSIAN_AUTH_METHOD → config auth_method → "basic"
+// Invalid values are skipped and fall through to the next source.
+// Validation happens at entry points (api.New, init --auth-method) not here.
+func GetAuthMethodWithSource() (value, source string) {
+	if v := os.Getenv("JIRA_AUTH_METHOD"); v != "" {
+		if auth.ValidateAuthMethod(v) == nil {
+			return v, "env (JIRA_AUTH_METHOD)"
+		}
+	}
+	if v := os.Getenv("ATLASSIAN_AUTH_METHOD"); v != "" {
+		if auth.ValidateAuthMethod(v) == nil {
+			return v, "env (ATLASSIAN_AUTH_METHOD)"
+		}
+	}
+	cfg, err := Load()
+	if err != nil {
+		return auth.AuthMethodBasic, "default"
+	}
+	if cfg.AuthMethod != "" {
+		if auth.ValidateAuthMethod(cfg.AuthMethod) == nil {
+			return cfg.AuthMethod, "config"
+		}
+	}
+	return auth.AuthMethodBasic, "default"
+}
+
+// GetCloudID returns the Atlassian Cloud ID from config or environment.
+// Precedence: JIRA_CLOUD_ID → ATLASSIAN_CLOUD_ID → config cloud_id
+func GetCloudID() string {
+	v, _ := GetCloudIDWithSource()
+	return v
+}
+
+// GetCloudIDWithSource returns the Cloud ID and its source.
+// Precedence: JIRA_CLOUD_ID → ATLASSIAN_CLOUD_ID → config cloud_id
+func GetCloudIDWithSource() (value, source string) {
+	if v := os.Getenv("JIRA_CLOUD_ID"); v != "" {
+		return v, "env (JIRA_CLOUD_ID)"
+	}
+	if v := os.Getenv("ATLASSIAN_CLOUD_ID"); v != "" {
+		return v, "env (ATLASSIAN_CLOUD_ID)"
+	}
+	cfg, err := Load()
+	if err != nil {
+		return "", "-"
+	}
+	if cfg.CloudID != "" {
+		return cfg.CloudID, "config"
+	}
+	return "", "-"
 }
 
 // GetDefaultProject returns the default project from config or environment.

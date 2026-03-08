@@ -4,11 +4,19 @@ package api //nolint:revive // package name is intentional
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/open-cli-collective/atlassian-go/auth"
 	"github.com/open-cli-collective/atlassian-go/client"
+)
+
+// Validation errors for bearer auth.
+var (
+	ErrAPITokenRequired = errors.New("API token is required")
+	ErrCloudIDRequired  = errors.New("cloud ID is required for bearer auth")
 )
 
 // Client is the Confluence Cloud API client.
@@ -17,11 +25,29 @@ type Client struct {
 	*client.Client
 }
 
-// NewClient creates a new Confluence API client.
+// NewClient creates a new Confluence API client using basic auth.
 func NewClient(baseURL, email, apiToken string) *Client {
 	return &Client{
 		Client: client.New(baseURL, email, apiToken, nil),
 	}
+}
+
+// NewBearerClient creates a new Confluence API client using bearer auth via the API gateway.
+// The cloudID is used to construct the gateway URL: https://api.atlassian.com/ex/confluence/{cloudId}/wiki
+func NewBearerClient(apiToken, cloudID string) (*Client, error) {
+	if apiToken == "" {
+		return nil, ErrAPITokenRequired
+	}
+	if cloudID == "" {
+		return nil, ErrCloudIDRequired
+	}
+	gatewayBase := fmt.Sprintf("%s/ex/confluence/%s/wiki", client.GatewayBaseURL, cloudID)
+	opts := &client.Options{
+		AuthHeader: auth.BearerAuthHeader(apiToken),
+	}
+	return &Client{
+		Client: client.New(gatewayBase, "", "", opts),
+	}, nil
 }
 
 // GetHTTPClient returns the underlying HTTP client for custom requests.
