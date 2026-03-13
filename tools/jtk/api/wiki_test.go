@@ -88,7 +88,7 @@ func TestIsWikiMarkup(t *testing.T) {
 	}
 }
 
-func TestWikiToMarkdown(t *testing.T) {
+func TestWikiToADFMarkdown(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -184,17 +184,32 @@ func TestWikiToMarkdown(t *testing.T) {
 			input:    "h1. Guide\n\nThis is about {{code}}.\n\n{code:python}\nprint('hello')\n{code}\n\nSee [docs|https://example.com].",
 			expected: "# Guide\n\nThis is about `code`.\n\n```python\nprint('hello')\n```\n\nSee [docs](https://example.com).",
 		},
+		{
+			name:     "subscript passes through for goldmark extras",
+			input:    "h1. Formula\n\nH~2~O",
+			expected: "# Formula\n\nH~2~O",
+		},
+		{
+			name:     "superscript passes through for goldmark extras",
+			input:    "h1. Math\n\nx^2^ squared",
+			expected: "# Math\n\nx^2^ squared",
+		},
+		{
+			name:     "underline converted to double plus for goldmark extras",
+			input:    "h1. Note\n\nThis is +important+ text",
+			expected: "# Note\n\nThis is ++important++ text",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := WikiToMarkdown(tt.input)
+			result := WikiToADFMarkdown(tt.input)
 			testutil.Equal(t, result, tt.expected)
 		})
 	}
 }
 
-func TestWikiToMarkdownPreservesMarkdown(t *testing.T) {
+func TestWikiToADFMarkdownPreservesMarkdown(t *testing.T) {
 	// Markdown input should pass through mostly unchanged
 	// (some edge cases may have minor differences)
 	tests := []struct {
@@ -221,12 +236,182 @@ func TestWikiToMarkdownPreservesMarkdown(t *testing.T) {
 			name:  "markdown list",
 			input: "- Item 1\n- Item 2",
 		},
+		{
+			name:  "hyphenated compound words preserved",
+			input: "Deploy signal-webapp-frontend to ui-components",
+		},
+		{
+			name:  "tilde in text preserved",
+			input: "Introduce a three~tier system with ui~components",
+		},
+		{
+			name:  "file paths with hyphens preserved",
+			input: "See docs/2026-03-12-v3-theming-design.md",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := WikiToMarkdown(tt.input)
+			result := WikiToADFMarkdown(tt.input)
 			testutil.Equal(t, result, tt.input)
+		})
+	}
+}
+
+func TestConvertWikiTextFormatting_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "strikethrough at start of line",
+			input:    "-deleted text-",
+			expected: "~~deleted text~~",
+		},
+		{
+			name:     "strikethrough after space",
+			input:    "some -deleted- text",
+			expected: "some ~~deleted~~ text",
+		},
+		{
+			name:     "hyphenated word not converted",
+			input:    "signal-webapp-frontend",
+			expected: "signal-webapp-frontend",
+		},
+		{
+			name:     "subscript passes through for goldmark",
+			input:    "H ~2~ O",
+			expected: "H ~2~ O",
+		},
+		{
+			name:     "tilde in compound word not converted",
+			input:    "three~tier",
+			expected: "three~tier",
+		},
+		{
+			name:     "caret in compound word not converted",
+			input:    "x^2^y",
+			expected: "x^2^y",
+		},
+		{
+			name:     "underline converts to double plus for goldmark",
+			input:    "this is +important+ text",
+			expected: "this is ++important++ text",
+		},
+		{
+			name:     "file path hyphens preserved",
+			input:    "2026-03-12-design.md",
+			expected: "2026-03-12-design.md",
+		},
+		{
+			name:     "consecutive strikethrough with word between",
+			input:    "-one- and -two-",
+			expected: "~~one~~ and ~~two~~",
+		},
+		{
+			name:     "adjacent strikethrough single space",
+			input:    "-one- -two-",
+			expected: "~~one~~ ~~two~~",
+		},
+		{
+			name:     "strikethrough at end of string",
+			input:    "remove -this-",
+			expected: "remove ~~this~~",
+		},
+		{
+			name:     "subscript at end passes through for goldmark",
+			input:    "log ~n~",
+			expected: "log ~n~",
+		},
+		{
+			name:     "tilde with number not subscript without closing tilde",
+			input:    "migrate ~22 new components",
+			expected: "migrate ~22 new components",
+		},
+		{
+			name:     "punctuation adjacent formatting converts",
+			input:    "see (-deleted-) here",
+			expected: "see (~~deleted~~) here",
+		},
+		{
+			name:     "tab adjacent strikethrough converts",
+			input:    "text\t-removed-\tend",
+			expected: "text\t~~removed~~\tend",
+		},
+		{
+			name:     "period before delimiter does not trigger (asymmetric boundary)",
+			input:    "end.-deleted-",
+			expected: "end.-deleted-",
+		},
+		{
+			name:     "square bracket adjacent strikethrough converts",
+			input:    "[-deleted-]",
+			expected: "[~~deleted~~]",
+		},
+		{
+			name:     "newline adjacent strikethrough converts",
+			input:    "text\n-removed-\nend",
+			expected: "text\n~~removed~~\nend",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertWikiTextFormatting(tt.input)
+			testutil.Equal(t, result, tt.expected)
+		})
+	}
+}
+
+func TestIsWikiMarkup_MarkdownHeadings(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{
+			name:     "markdown h2 headings should not be detected as wiki",
+			input:    "## What\n\nSome content\n\n## Scope\n\nMore content",
+			expected: false,
+		},
+		{
+			name:     "markdown mixed heading levels",
+			input:    "## Overview\n\n### Details\n\n## Summary",
+			expected: false,
+		},
+		{
+			name:     "actual wiki numbered list",
+			input:    "# First item\n# Second item\n# Third item",
+			expected: true,
+		},
+		{
+			name:     "multiple markdown h1 headings should not be detected as wiki",
+			input:    "# Title\n\nContent\n\n# Another Section",
+			expected: false,
+		},
+		{
+			name:     "h3 headings should not be detected as wiki",
+			input:    "### Section A\n\n### Section B\n\n### Section C",
+			expected: false,
+		},
+		{
+			name:     "adjacent h1 without blank line is treated as wiki list (intentional)",
+			input:    "# First item\n# Second item",
+			expected: true,
+		},
+		{
+			name:     "nested wiki ## under # treated as markdown not wiki (intentional false negative)",
+			input:    "# Top level\n## Nested item\n## Another nested",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsWikiMarkup(tt.input)
+			testutil.Equal(t, result, tt.expected)
 		})
 	}
 }

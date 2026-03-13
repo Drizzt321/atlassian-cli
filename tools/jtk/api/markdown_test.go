@@ -2,6 +2,7 @@ package api //nolint:revive // package name is intentional
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/open-cli-collective/atlassian-go/testutil"
@@ -556,6 +557,201 @@ func TestMarkdownToADF_Formatting(t *testing.T) {
 				}
 			}
 			testutil.True(t, foundMark, "expected to find mark "+tt.mark)
+		})
+	}
+}
+
+// TestMarkdownToADF_WikiSubscript verifies that wiki subscript (~text~) produces
+// a proper ADF "subsup" mark with attrs.type "sub", not raw HTML or dropped text.
+func TestMarkdownToADF_WikiSubscript(t *testing.T) {
+	// Wiki markup: ~subscript~ should become ADF subsup mark
+	input := "h1. Formula\n\nH~2~O is water"
+	result := MarkdownToADF(input)
+	testutil.NotNil(t, result)
+
+	// Find the paragraph with inline content
+	var found bool
+	for _, node := range result.Content {
+		if node.Type != "paragraph" {
+			continue
+		}
+		for _, inline := range node.Content {
+			if inline.Text == "2" {
+				found = true
+				testutil.True(t, len(inline.Marks) > 0, "subscript text should have marks")
+				testutil.Equal(t, inline.Marks[0].Type, "subsup")
+				testutil.Equal(t, inline.Marks[0].Attrs["type"], "sub")
+			}
+		}
+	}
+	testutil.True(t, found, "should find subscript text '2'")
+}
+
+// TestMarkdownToADF_WikiSuperscript verifies that wiki superscript (^text^) produces
+// a proper ADF "subsup" mark with attrs.type "sup".
+func TestMarkdownToADF_WikiSuperscript(t *testing.T) {
+	input := "h1. Math\n\nx^2^ is x squared"
+	result := MarkdownToADF(input)
+	testutil.NotNil(t, result)
+
+	var found bool
+	for _, node := range result.Content {
+		if node.Type != "paragraph" {
+			continue
+		}
+		for _, inline := range node.Content {
+			if inline.Text == "2" {
+				found = true
+				testutil.True(t, len(inline.Marks) > 0, "superscript text should have marks")
+				testutil.Equal(t, inline.Marks[0].Type, "subsup")
+				testutil.Equal(t, inline.Marks[0].Attrs["type"], "sup")
+			}
+		}
+	}
+	testutil.True(t, found, "should find superscript text '2'")
+}
+
+// TestMarkdownToADF_WikiUnderline verifies that wiki underline (+text+) produces
+// a proper ADF "underline" mark.
+func TestMarkdownToADF_WikiUnderline(t *testing.T) {
+	input := "h1. Note\n\nThis is +important+ text"
+	result := MarkdownToADF(input)
+	testutil.NotNil(t, result)
+
+	var found bool
+	for _, node := range result.Content {
+		if node.Type != "paragraph" {
+			continue
+		}
+		for _, inline := range node.Content {
+			if inline.Text == "important" {
+				found = true
+				testutil.True(t, len(inline.Marks) > 0, "underlined text should have marks")
+				testutil.Equal(t, inline.Marks[0].Type, "underline")
+			}
+		}
+	}
+	testutil.True(t, found, "should find underlined text 'important'")
+}
+
+// TestMarkdownToADF_CompoundWordsEndToEnd verifies the full pipeline preserves
+// compound words with hyphens and tildes — the original bug that motivated this
+// change. Tests the complete path: input → wiki detection → goldmark → ADF.
+func TestMarkdownToADF_CompoundWordsEndToEnd(t *testing.T) {
+	input := "## Overview\n\nDeploy signal-webapp-frontend to ui-components.\n\n## Spec\n\nSee 2026-03-12-v3-theming-design.md for the three-tier token system."
+	result := MarkdownToADF(input)
+	testutil.NotNil(t, result)
+
+	// Verify compound words appear intact within single ADF text nodes.
+	// This is stronger than joining all text — it proves words aren't
+	// fragmented across nodes by wiki formatting conversion.
+	compoundWords := []string{
+		"signal-webapp-frontend",
+		"ui-components",
+		"2026-03-12-v3-theming-design.md",
+		"three-tier",
+	}
+
+	var allText []string
+	var collectText func(nodes []*ADFNode)
+	collectText = func(nodes []*ADFNode) {
+		for _, n := range nodes {
+			if n.Text != "" {
+				allText = append(allText, n.Text)
+			}
+			if n.Content != nil {
+				collectText(n.Content)
+			}
+		}
+	}
+	collectText(result.Content)
+
+	for _, word := range compoundWords {
+		found := false
+		for _, nodeText := range allText {
+			if strings.Contains(nodeText, word) {
+				found = true
+				break
+			}
+		}
+		testutil.True(t, found, word+" should appear intact within a single text node")
+	}
+}
+
+// TestMarkdownToADF_EvenTildeCompoundWord verifies that compound words with an
+// even number of tildes (e.g., "signal~webapp~frontend") are NOT mangled by
+// goldmark subscript processing. This is ensured by using the standard parser
+// (no subscript) for non-wiki input.
+func TestMarkdownToADF_EvenTildeCompoundWord(t *testing.T) {
+	input := "Deploy signal~webapp~frontend to production"
+	result := MarkdownToADF(input)
+	testutil.NotNil(t, result)
+	testutil.NotEmpty(t, result.Content)
+
+	// Should be a single paragraph with no subsup marks
+	para := result.Content[0]
+	testutil.Equal(t, para.Type, "paragraph")
+	for _, node := range para.Content {
+		if node.Marks != nil {
+			for _, mark := range node.Marks {
+				if mark.Type == "subsup" {
+					t.Errorf("found unexpected subsup mark on text %q — even-tilde compound word was mangled", node.Text)
+				}
+			}
+		}
+	}
+}
+
+// TestMarkdownToADF_EvenCaretCompoundWord verifies that "x^2^y" in plain
+// markdown is NOT converted to superscript.
+func TestMarkdownToADF_EvenCaretCompoundWord(t *testing.T) {
+	input := "Calculate x^2^y in the formula"
+	result := MarkdownToADF(input)
+	testutil.NotNil(t, result)
+
+	para := result.Content[0]
+	for _, node := range para.Content {
+		if node.Marks != nil {
+			for _, mark := range node.Marks {
+				if mark.Type == "subsup" {
+					t.Errorf("found unexpected subsup mark on text %q — caret compound was mangled", node.Text)
+				}
+			}
+		}
+	}
+}
+
+// TestMarkdownToADF_InlineOnlyWikiNotDetected verifies that inline-only wiki
+// formatting (H~2~O, +important+, -deleted-) without block-level wiki markers
+// (h1., {code}, etc.) is NOT detected as wiki markup. These go through the
+// standard parser, so ~text~ and ^text^ won't produce ADF marks.
+func TestMarkdownToADF_InlineOnlyWikiNotDetected(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "subscript only", input: "H~2~O is water"},
+		{name: "superscript only", input: "x^2^ squared"},
+		{name: "underline only", input: "this is +important+ text"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Should NOT be detected as wiki
+			testutil.Equal(t, IsWikiMarkup(tt.input), false)
+
+			// Should go through standard parser without subsup/underline marks
+			result := MarkdownToADF(tt.input)
+			testutil.NotNil(t, result)
+			for _, block := range result.Content {
+				for _, node := range block.Content {
+					for _, mark := range node.Marks {
+						if mark.Type == "subsup" || mark.Type == "underline" {
+							t.Errorf("found unexpected %s mark on %q — inline-only wiki should use standard parser", mark.Type, node.Text)
+						}
+					}
+				}
+			}
 		})
 	}
 }
