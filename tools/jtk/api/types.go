@@ -344,10 +344,13 @@ type JQLSearchResult struct {
 	IsLast        bool    `json:"isLast"`
 }
 
-// SearchPageOptions contains options for a single-page search.
+// SearchPageOptions contains options for searching issues with automatic pagination.
+// MaxResults controls the total number of results desired; when it exceeds the
+// per-request PageSize (capped at 100), SearchPage auto-paginates internally.
 type SearchPageOptions struct {
 	JQL           string
 	PageSize      int
+	MaxResults    int
 	Fields        []string
 	NextPageToken string
 }
@@ -360,6 +363,7 @@ type PaginatedIssues struct {
 
 // PaginationInfo contains cursor-based pagination metadata.
 type PaginationInfo struct {
+	Total         int    `json:"total"`
 	PageSize      int    `json:"pageSize"`
 	IsLast        bool   `json:"isLast"`
 	NextPageToken string `json:"nextPageToken,omitempty"`
