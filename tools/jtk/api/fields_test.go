@@ -232,6 +232,42 @@ func TestFormatFieldValue(t *testing.T) {
 			want:  map[string]string{"accountId": "abc123"},
 		},
 		{
+			name: "user field with none - returns nil for unassignment",
+			field: &Field{
+				ID:   "assignee",
+				Name: "Assignee",
+				Schema: FieldSchema{
+					Type: "user",
+				},
+			},
+			value: "none",
+			want:  nil,
+		},
+		{
+			name: "user field with empty string - returns nil for unassignment",
+			field: &Field{
+				ID:   "assignee",
+				Name: "Assignee",
+				Schema: FieldSchema{
+					Type: "user",
+				},
+			},
+			value: "",
+			want:  nil,
+		},
+		{
+			name: "user field with null - returns nil for unassignment",
+			field: &Field{
+				ID:   "assignee",
+				Name: "Assignee",
+				Schema: FieldSchema{
+					Type: "user",
+				},
+			},
+			value: "null",
+			want:  nil,
+		},
+		{
 			name: "string field - returns as-is",
 			field: &Field{
 				ID:   "summary",
@@ -552,4 +588,29 @@ func TestMergeFieldValues(t *testing.T) {
 		}
 		testutil.Equal(t, merged, want)
 	})
+}
+
+func TestIsNullValue(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"none", true},
+		{"None", true},
+		{"NONE", true},
+		{"null", true},
+		{"Null", true},
+		{"NULL", true},
+		{"", true},
+		{" none ", true},
+		{"user@example.com", false},
+		{"me", false},
+		{"61292e4c4f29230069621c5f", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			testutil.Equal(t, IsNullValue(tt.input), tt.want)
+		})
+	}
 }

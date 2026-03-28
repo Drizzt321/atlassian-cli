@@ -125,3 +125,5 @@ func TestResolveAssignee_EmailNotFound(t *testing.T) {
 	testutil.Error(t, err)
 	testutil.Contains(t, err.Error(), "no user found")
 }
+
+// IsNullValue tests are in api/fields_test.go since the function is exported from the api package.
