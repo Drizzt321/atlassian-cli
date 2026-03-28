@@ -496,3 +496,60 @@ func TestClient_GetFieldOptionsFromEditMeta(t *testing.T) {
 		testutil.Contains(t, err.Error(), "not found")
 	})
 }
+
+func TestMergeFieldValues(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing any
+		newVal   any
+		want     any
+	}{
+		{
+			name:     "merge option arrays (multi-checkbox)",
+			existing: []map[string]string{{"value": "CheckSync"}},
+			newVal:   []map[string]string{{"value": "MoniCore"}},
+			want:     []map[string]string{{"value": "CheckSync"}, {"value": "MoniCore"}},
+		},
+		{
+			name:     "merge string arrays (labels)",
+			existing: []string{"urgent"},
+			newVal:   []string{"backend"},
+			want:     []string{"urgent", "backend"},
+		},
+		{
+			name:     "non-array field overwrites",
+			existing: "old value",
+			newVal:   "new value",
+			want:     "new value",
+		},
+		{
+			name:     "mismatched types - new value wins",
+			existing: "string value",
+			newVal:   []string{"array value"},
+			want:     []string{"array value"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MergeFieldValues(tt.existing, tt.newVal)
+			testutil.Equal(t, got, tt.want)
+		})
+	}
+
+	t.Run("chained merges - three option values", func(t *testing.T) {
+		v1 := []map[string]string{{"value": "CheckSync"}}
+		v2 := []map[string]string{{"value": "MoniCore"}}
+		v3 := []map[string]string{{"value": "Monit Accounting"}}
+
+		merged := MergeFieldValues(v1, v2)
+		merged = MergeFieldValues(merged, v3)
+
+		want := []map[string]string{
+			{"value": "CheckSync"},
+			{"value": "MoniCore"},
+			{"value": "Monit Accounting"},
+		}
+		testutil.Equal(t, merged, want)
+	})
+}
