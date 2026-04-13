@@ -10,7 +10,7 @@ import (
 
 	"github.com/open-cli-collective/atlassian-go/view"
 
-	"github.com/open-cli-collective/confluence-cli/api"
+	cflartifact "github.com/open-cli-collective/confluence-cli/internal/artifact"
 	"github.com/open-cli-collective/confluence-cli/internal/cmd/root"
 	"github.com/open-cli-collective/confluence-cli/pkg/md"
 )
@@ -24,7 +24,7 @@ type viewOptions struct {
 	*root.Options
 	raw         bool
 	web         bool
-	full        bool
+	noTruncate  bool
 	showMacros  bool
 	contentOnly bool
 }
@@ -41,14 +41,14 @@ The page body is fetched in storage format (XHTML) and converted to
 markdown for display. Use --raw to see the original storage format.
 
 By default, output is truncated to 5000 characters for concise display.
-Use --full to show the complete page content without truncation.
-The --content-only flag implies --full since it is intended for piping.
+Use --no-truncate to show the complete page content without truncation.
+The --content-only flag implies --no-truncate since it is intended for piping.
 JSON output (--output json) always includes the full body.`,
 		Example: `  # View a page (markdown, truncated if large)
   cfl page view 12345
 
   # View full content without truncation
-  cfl page view 12345 --full
+  cfl page view 12345 --no-truncate
 
   # View raw storage format (XHTML)
   cfl page view 12345 --raw
@@ -69,9 +69,9 @@ JSON output (--output json) always includes the full body.`,
 
 	cmd.Flags().BoolVar(&opts.raw, "raw", false, "Show raw Confluence storage format (XHTML) instead of markdown")
 	cmd.Flags().BoolVarP(&opts.web, "web", "w", false, "Open in browser instead of displaying")
-	cmd.Flags().BoolVar(&opts.full, "full", false, "Show full content without truncation")
+	cmd.Flags().BoolVar(&opts.noTruncate, "no-truncate", false, "Show full content without truncation")
 	cmd.Flags().BoolVar(&opts.showMacros, "show-macros", false, "Show Confluence macro placeholders (e.g., [TOC]) instead of stripping them")
-	cmd.Flags().BoolVar(&opts.contentOnly, "content-only", false, "Output only page content (no metadata headers); implies --full")
+	cmd.Flags().BoolVar(&opts.contentOnly, "content-only", false, "Output only page content (no metadata headers); implies --no-truncate")
 
 	return cmd
 }
@@ -128,9 +128,16 @@ func runView(ctx context.Context, pageID string, opts *viewOptions) error {
 	}
 
 	if opts.Output == "json" {
-		// Enrich JSON output with spaceKey
-		enriched := enrichPageWithSpaceKey(page, spaceKey)
-		return v.JSON(enriched)
+		// Extract content (XHTML storage format by default, until #196 validates markdown)
+		content := ""
+		if hasStorageContent(page) {
+			content = page.Body.Storage.Value
+		} else if hasADFContent(page) {
+			content = page.Body.AtlasDocFormat.Value
+		}
+
+		art := cflartifact.ProjectPage(page, spaceKey, content, opts.ArtifactMode())
+		return v.RenderArtifact(art)
 	}
 
 	if !opts.contentOnly {
@@ -187,14 +194,14 @@ func runView(ctx context.Context, pageID string, opts *viewOptions) error {
 
 // truncateContent truncates content if it exceeds the character limit.
 // Uses rune count to avoid splitting multi-byte UTF-8 characters.
-// --content-only implies --full since it is intended for piping.
+// --content-only implies --no-truncate since it is intended for piping.
 func truncateContent(content string, opts *viewOptions) string {
-	if opts.full || opts.contentOnly {
+	if opts.noTruncate || opts.contentOnly {
 		return content
 	}
 	runes := []rune(content)
 	if len(runes) > maxViewChars {
-		return string(runes[:maxViewChars]) + fmt.Sprintf("\n\n... [truncated at %d chars, use --full for complete text]", maxViewChars)
+		return string(runes[:maxViewChars]) + fmt.Sprintf("\n\n... [truncated at %d chars, use --no-truncate for complete text]", maxViewChars)
 	}
 	return content
 }
@@ -214,18 +221,4 @@ func openBrowser(url string) error {
 	}
 
 	return cmd.Start()
-}
-
-// enrichedPage wraps api.Page with an additional spaceKey field for JSON output.
-type enrichedPage struct {
-	*api.Page
-	SpaceKey string `json:"spaceKey,omitempty"`
-}
-
-// enrichPageWithSpaceKey creates an enriched page with the space key for JSON output.
-func enrichPageWithSpaceKey(page *api.Page, spaceKey string) *enrichedPage {
-	return &enrichedPage{
-		Page:     page,
-		SpaceKey: spaceKey,
-	}
 }
