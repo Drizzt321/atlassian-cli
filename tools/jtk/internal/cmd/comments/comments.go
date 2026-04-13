@@ -6,6 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/open-cli-collective/atlassian-go/artifact"
+	"github.com/open-cli-collective/atlassian-go/view"
+
+	jtkartifact "github.com/open-cli-collective/jira-ticket-cli/internal/artifact"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/text"
 )
@@ -66,8 +70,19 @@ func runList(ctx context.Context, opts *root.Options, issueKey string, maxResult
 		return nil
 	}
 
-	if opts.Output == "json" {
-		return v.JSON(result.Comments)
+	if v.Format == view.FormatJSON {
+		arts := jtkartifact.ProjectComments(result.Comments, opts.ArtifactMode())
+		// Use authoritative pagination metadata from API response.
+		// Guard against Total==0 edge case in Jira Cloud by also checking
+		// if we received a full page of results.
+		hasMore := false
+		if result.Total > 0 {
+			hasMore = result.StartAt+len(result.Comments) < result.Total
+		} else if len(result.Comments) == maxResults {
+			// Total is 0 but we got a full page - likely more results exist
+			hasMore = true
+		}
+		return v.RenderArtifactList(artifact.NewListResult(arts, hasMore))
 	}
 
 	// No-truncate mode: display each comment with complete body text

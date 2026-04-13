@@ -15,12 +15,17 @@ func TestProjectIssue_AgentMode(t *testing.T) {
 	issue := &api.Issue{
 		Key: "PROJ-123",
 		Fields: api.IssueFields{
-			Summary:   "Fix the bug",
-			Status:    &api.Status{Name: "In Progress"},
-			IssueType: &api.IssueType{Name: "Bug"},
-			Assignee:  &api.User{DisplayName: "John Doe"},
-			Priority:  &api.Priority{Name: "High"},
-			Project:   &api.Project{Key: "PROJ"},
+			Summary:     "Fix the bug",
+			Description: &api.Description{Text: "This is a bug description"},
+			Status:      &api.Status{Name: "In Progress"},
+			IssueType:   &api.IssueType{Name: "Bug"},
+			Assignee:    &api.User{DisplayName: "John Doe"},
+			Priority:    &api.Priority{Name: "High"},
+			Project:     &api.Project{Key: "PROJ"},
+			Created:     "2024-01-15T10:00:00.000Z",
+			Updated:     "2024-01-16T11:00:00.000Z",
+			Reporter:    &api.User{DisplayName: "Jane Doe"},
+			Labels:      []string{"bug", "urgent"},
 		},
 	}
 
@@ -36,6 +41,11 @@ func TestProjectIssue_AgentMode(t *testing.T) {
 	// Full-only fields empty
 	testutil.Equal(t, art.Priority, "")
 	testutil.Equal(t, art.Project, "")
+	testutil.Equal(t, art.Created, "")
+	testutil.Equal(t, art.Updated, "")
+	testutil.Equal(t, art.Reporter, "")
+	testutil.Nil(t, art.Labels)
+	testutil.Equal(t, art.Description, "")
 }
 
 func TestProjectIssue_FullMode(t *testing.T) {
@@ -44,12 +54,17 @@ func TestProjectIssue_FullMode(t *testing.T) {
 	issue := &api.Issue{
 		Key: "PROJ-123",
 		Fields: api.IssueFields{
-			Summary:   "Fix the bug",
-			Status:    &api.Status{Name: "Done"},
-			IssueType: &api.IssueType{Name: "Task"},
-			Assignee:  &api.User{DisplayName: "Jane Doe"},
-			Priority:  &api.Priority{Name: "Critical"},
-			Project:   &api.Project{Key: "PROJ"},
+			Summary:     "Fix the bug",
+			Description: &api.Description{Text: "This is a detailed description"},
+			Status:      &api.Status{Name: "Done"},
+			IssueType:   &api.IssueType{Name: "Task"},
+			Assignee:    &api.User{DisplayName: "Jane Doe"},
+			Priority:    &api.Priority{Name: "Critical"},
+			Project:     &api.Project{Key: "PROJ"},
+			Created:     "2024-01-15T10:00:00.000Z",
+			Updated:     "2024-01-16T11:00:00.000Z",
+			Reporter:    &api.User{DisplayName: "John Doe"},
+			Labels:      []string{"bug", "urgent"},
 		},
 	}
 
@@ -65,6 +80,12 @@ func TestProjectIssue_FullMode(t *testing.T) {
 	// Full-only fields populated
 	testutil.Equal(t, art.Priority, "Critical")
 	testutil.Equal(t, art.Project, "PROJ")
+	testutil.Equal(t, art.Created, "2024-01-15")
+	testutil.Equal(t, art.Updated, "2024-01-16")
+	testutil.Equal(t, art.Reporter, "John Doe")
+	testutil.Equal(t, len(art.Labels), 2)
+	testutil.Equal(t, art.Labels[0], "bug")
+	testutil.Equal(t, art.Description, "This is a detailed description")
 }
 
 func TestProjectIssue_NilFields(t *testing.T) {
@@ -74,7 +95,7 @@ func TestProjectIssue_NilFields(t *testing.T) {
 		Key: "PROJ-456",
 		Fields: api.IssueFields{
 			Summary: "Minimal issue",
-			// All pointer fields nil
+			// All pointer fields nil, no dates/labels
 		},
 	}
 
@@ -87,6 +108,11 @@ func TestProjectIssue_NilFields(t *testing.T) {
 	testutil.Equal(t, art.Assignee, "")
 	testutil.Equal(t, art.Priority, "")
 	testutil.Equal(t, art.Project, "")
+	testutil.Equal(t, art.Created, "")
+	testutil.Equal(t, art.Updated, "")
+	testutil.Equal(t, art.Reporter, "")
+	testutil.Nil(t, art.Labels)
+	testutil.Equal(t, art.Description, "")
 }
 
 func TestProjectIssues(t *testing.T) {
