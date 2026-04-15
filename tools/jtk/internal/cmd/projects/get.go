@@ -2,15 +2,11 @@ package projects
 
 import (
 	"context"
-	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-	"github.com/open-cli-collective/atlassian-go/view"
-
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func newGetCmd(opts *root.Options) *cobra.Command {
@@ -40,13 +36,34 @@ func runGet(ctx context.Context, opts *root.Options, keyOrID string) error {
 		return err
 	}
 
-	if v.Format == view.FormatJSON {
+	if opts.Output == "json" {
 		return v.JSON(project)
 	}
 
-	model := jtkpresent.ProjectPresenter{}.Present(project)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
+	v.Println("Key:         %s", project.Key)
+	v.Println("Name:        %s", project.Name)
+	v.Println("ID:          %s", project.ID.String())
+	v.Println("Type:        %s", project.ProjectTypeKey)
+
+	if project.Lead != nil {
+		v.Println("Lead:        %s", project.Lead.DisplayName)
+	}
+
+	if project.Description != "" {
+		v.Println("Description: %s", project.Description)
+	}
+
+	if len(project.IssueTypes) > 0 {
+		var names []string
+		for _, it := range project.IssueTypes {
+			names = append(names, it.Name)
+		}
+		v.Println("Issue Types: %s", strings.Join(names, ", "))
+	}
+
+	if project.URL != "" {
+		v.Println("URL:         %s", project.URL)
+	}
+
 	return nil
 }

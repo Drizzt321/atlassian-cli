@@ -3,17 +3,14 @@ package users
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/atlassian-go/artifact"
-	"github.com/open-cli-collective/atlassian-go/present"
 	"github.com/open-cli-collective/atlassian-go/view"
 
 	jtkartifact "github.com/open-cli-collective/jira-ticket-cli/internal/artifact"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 // Register registers the users commands
@@ -65,11 +62,18 @@ func runGet(ctx context.Context, opts *root.Options, accountID string) error {
 		return v.RenderArtifact(jtkartifact.ProjectUser(user, opts.ArtifactMode()))
 	}
 
-	// Text path: presenter → render → write
-	model := jtkpresent.UserPresenter{}.Present(user)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
+	active := "yes"
+	if !user.Active {
+		active = "no"
+	}
+
+	v.Println("Account ID:  %s", user.AccountID)
+	v.Println("Name:        %s", user.DisplayName)
+	if user.EmailAddress != "" {
+		v.Println("Email:       %s", user.EmailAddress)
+	}
+	v.Println("Active:      %s", active)
+
 	return nil
 }
 
@@ -116,9 +120,7 @@ func runSearch(ctx context.Context, opts *root.Options, query string, maxResults
 	}
 
 	if len(users) == 0 {
-		model := jtkpresent.UserPresenter{}.PresentEmpty(query)
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+		v.Info("No users found matching '%s'", query)
 		return nil
 	}
 
@@ -130,10 +132,16 @@ func runSearch(ctx context.Context, opts *root.Options, query string, maxResults
 		return v.RenderArtifactList(artifact.NewListResult(arts, hasMore))
 	}
 
-	// Text path: presenter → render → write
-	model := jtkpresent.UserPresenter{}.PresentList(users)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-	return nil
+	headers := []string{"ACCOUNT_ID", "NAME", "EMAIL", "ACTIVE"}
+	rows := make([][]string, 0, len(users))
+
+	for _, u := range users {
+		active := "yes"
+		if !u.Active {
+			active = "no"
+		}
+		rows = append(rows, []string{u.AccountID, u.DisplayName, u.EmailAddress, active})
+	}
+
+	return v.Table(headers, rows)
 }

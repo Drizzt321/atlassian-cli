@@ -6,7 +6,6 @@ import (
 	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func TestSummarizeComponents(t *testing.T) {
@@ -60,7 +59,7 @@ func TestSummarizeComponents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := jtkpresent.SummarizeComponents(tt.components)
+			got := summarizeComponents(tt.components)
 			testutil.Equal(t, got, tt.want)
 		})
 	}

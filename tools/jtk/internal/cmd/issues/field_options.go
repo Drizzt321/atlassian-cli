@@ -6,11 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func newFieldOptionsCmd(opts *root.Options) *cobra.Command {
@@ -41,7 +38,6 @@ Without --issue, attempts to show all possible values for the field.`,
 
 func runFieldOptions(ctx context.Context, opts *root.Options, fieldNameOrID, issueKey string) error {
 	v := opts.View()
-	fp := jtkpresent.FieldPresenter{}
 
 	client, err := opts.APIClient()
 	if err != nil {
@@ -80,17 +76,13 @@ func runFieldOptions(ctx context.Context, opts *root.Options, fieldNameOrID, iss
 		// Try to get options without issue context
 		options, err = client.GetFieldOptions(ctx, fieldID)
 		if err != nil {
-			warnModel := fp.PresentOptionsNoContext()
-			warnOut := present.Render(warnModel, opts.RenderStyle())
-			_, _ = fmt.Fprint(opts.Stderr, warnOut.Stderr)
+			v.Warning("Could not get field options without issue context. Use --issue flag for better results.")
 			return fmt.Errorf("getting options for field %s: %w", fieldName, err)
 		}
 	}
 
 	if len(options) == 0 {
-		model := fp.PresentNoOptions(fieldID)
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+		v.Info("No options found for field '%s'", fieldName)
 		return nil
 	}
 
@@ -98,25 +90,23 @@ func runFieldOptions(ctx context.Context, opts *root.Options, fieldNameOrID, iss
 		return v.JSON(options)
 	}
 
-	// Build field options list
-	fieldOpts := make([]jtkpresent.FieldOption, len(options))
-	for i, opt := range options {
+	// Display options table
+	v.Info("Allowed values for field '%s':", fieldName)
+
+	headers := []string{"VALUE", "ID"}
+	var rows [][]string
+
+	for _, opt := range options {
 		value := opt.Value
 		if value == "" {
 			value = opt.Name
 		}
+		id := opt.ID
 		if opt.Disabled {
 			value = value + " (disabled)"
 		}
-		fieldOpts[i] = jtkpresent.FieldOption{
-			ID:    opt.ID,
-			Value: value,
-		}
+		rows = append(rows, []string{value, id})
 	}
 
-	model := fp.PresentFieldOptionsWithHeader(fieldName, fieldOpts)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-	return nil
+	return v.Table(headers, rows)
 }

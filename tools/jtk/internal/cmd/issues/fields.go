@@ -2,15 +2,11 @@ package issues
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func newFieldsCmd(opts *root.Options) *cobra.Command {
@@ -65,14 +61,12 @@ func runFields(ctx context.Context, opts *root.Options, issueKey string, customO
 		// Extract field information from metadata
 		fieldsData, ok := meta["fields"].(map[string]any)
 		if !ok {
-			model := jtkpresent.IssuePresenter{}.PresentNoEditableFields(issueKey)
-			out := present.Render(model, opts.RenderStyle())
-			_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+			v.Info("No editable fields found for %s", issueKey)
 			return nil
 		}
 
-		// Build editable fields list
-		editableFields := make([]jtkpresent.EditableField, 0, len(fieldsData))
+		headers := []string{"ID", "NAME", "TYPE", "REQUIRED"}
+		rows := make([][]string, 0, len(fieldsData))
 
 		for id, data := range fieldsData {
 			fieldData, ok := data.(map[string]any)
@@ -81,9 +75,9 @@ func runFields(ctx context.Context, opts *root.Options, issueKey string, customO
 			}
 
 			name := safeString(fieldData["name"])
-			required := false
+			required := "no"
 			if req, ok := fieldData["required"].(bool); ok && req {
-				required = true
+				required = "yes"
 			}
 
 			// Get schema type
@@ -92,19 +86,10 @@ func runFields(ctx context.Context, opts *root.Options, issueKey string, customO
 				fieldType = safeString(schema["type"])
 			}
 
-			editableFields = append(editableFields, jtkpresent.EditableField{
-				ID:       id,
-				Name:     name,
-				Type:     fieldType,
-				Required: required,
-			})
+			rows = append(rows, []string{id, name, fieldType, required})
 		}
 
-		model := jtkpresent.FieldPresenter{}.PresentEditableFields(editableFields)
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-		_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-		return nil
+		return v.Table(headers, rows)
 	}
 
 	// List all fields
@@ -123,9 +108,16 @@ func runFields(ctx context.Context, opts *root.Options, issueKey string, customO
 		return v.JSON(fields)
 	}
 
-	model := jtkpresent.FieldPresenter{}.PresentList(fields)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-	return nil
+	headers := []string{"ID", "NAME", "TYPE", "CUSTOM"}
+	rows := make([][]string, 0, len(fields))
+
+	for _, f := range fields {
+		custom := "no"
+		if f.Custom {
+			custom = "yes"
+		}
+		rows = append(rows, []string{f.ID, f.Name, f.Schema.Type, custom})
+	}
+
+	return v.Table(headers, rows)
 }

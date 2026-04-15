@@ -2,15 +2,10 @@ package projects
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-	"github.com/open-cli-collective/atlassian-go/view"
-
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func newRestoreCmd(opts *root.Options) *cobra.Command {
@@ -39,12 +34,11 @@ func runRestore(ctx context.Context, opts *root.Options, keyOrID string) error {
 		return err
 	}
 
-	if v.Format == view.FormatJSON {
+	if opts.Output == "json" {
 		return v.JSON(project)
 	}
 
-	model := jtkpresent.ProjectPresenter{}.PresentRestored(project.Key, project.Name)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+	v.Success("Restored project %s (%s)", project.Key, project.Name)
+
 	return nil
 }

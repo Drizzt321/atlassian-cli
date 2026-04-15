@@ -8,13 +8,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/open-cli-collective/atlassian-go/artifact"
-	"github.com/open-cli-collective/atlassian-go/present"
 	"github.com/open-cli-collective/atlassian-go/view"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	jtkartifact "github.com/open-cli-collective/jira-ticket-cli/internal/artifact"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 // Register registers the sprints commands
@@ -89,9 +87,7 @@ func runList(ctx context.Context, opts *root.Options, boardID int, state string,
 	}
 
 	if len(result.Values) == 0 {
-		model := jtkpresent.SprintPresenter{}.PresentEmpty()
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+		v.Info("No sprints found")
 		return nil
 	}
 
@@ -101,12 +97,29 @@ func runList(ctx context.Context, opts *root.Options, boardID int, state string,
 		return v.RenderArtifactList(artifact.NewListResult(arts, hasMore))
 	}
 
-	// Text path: presenter → render → write
-	model := jtkpresent.SprintPresenter{}.PresentList(result.Values)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-	return nil
+	headers := []string{"ID", "NAME", "STATE", "START", "END"}
+	rows := make([][]string, 0, len(result.Values))
+
+	for _, s := range result.Values {
+		startDate := ""
+		if s.StartDate != nil {
+			startDate = s.StartDate.Format("2006-01-02")
+		}
+		endDate := ""
+		if s.EndDate != nil {
+			endDate = s.EndDate.Format("2006-01-02")
+		}
+
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", s.ID),
+			s.Name,
+			s.State,
+			startDate,
+			endDate,
+		})
+	}
+
+	return v.Table(headers, rows)
 }
 
 func newCurrentCmd(opts *root.Options) *cobra.Command {
@@ -147,11 +160,19 @@ func runCurrent(ctx context.Context, opts *root.Options, boardID int) error {
 		return v.RenderArtifact(jtkartifact.ProjectSprint(sprint, opts.ArtifactMode()))
 	}
 
-	// Text path: presenter → render → write
-	model := jtkpresent.SprintPresenter{}.PresentDetail(sprint)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
+	v.Println("ID:    %d", sprint.ID)
+	v.Println("Name:  %s", sprint.Name)
+	v.Println("State: %s", sprint.State)
+	if sprint.StartDate != nil {
+		v.Println("Start: %s", sprint.StartDate.Format("2006-01-02"))
+	}
+	if sprint.EndDate != nil {
+		v.Println("End:   %s", sprint.EndDate.Format("2006-01-02"))
+	}
+	if sprint.Goal != "" {
+		v.Println("Goal:  %s", sprint.Goal)
+	}
+
 	return nil
 }
 
@@ -192,9 +213,7 @@ func runIssues(ctx context.Context, opts *root.Options, sprintID int, maxResults
 	}
 
 	if len(result.Issues) == 0 {
-		model := jtkpresent.SprintPresenter{}.PresentNoIssues()
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+		v.Info("No issues in sprint")
 		return nil
 	}
 
@@ -211,12 +230,40 @@ func runIssues(ctx context.Context, opts *root.Options, sprintID int, maxResults
 		return v.RenderArtifactList(artifact.NewListResult(arts, hasMore))
 	}
 
-	// Text path: presenter → render → write
-	model := jtkpresent.IssuePresenter{}.PresentList(result.Issues)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-	return nil
+	headers := []string{"KEY", "SUMMARY", "STATUS", "ASSIGNEE", "TYPE"}
+	rows := make([][]string, 0, len(result.Issues))
+
+	for _, issue := range result.Issues {
+		status := ""
+		if issue.Fields.Status != nil {
+			status = issue.Fields.Status.Name
+		}
+
+		assignee := ""
+		if issue.Fields.Assignee != nil {
+			assignee = issue.Fields.Assignee.DisplayName
+		}
+
+		issueType := ""
+		if issue.Fields.IssueType != nil {
+			issueType = issue.Fields.IssueType.Name
+		}
+
+		summary := issue.Fields.Summary
+		if len(summary) > 50 {
+			summary = summary[:50] + "..."
+		}
+
+		rows = append(rows, []string{
+			issue.Key,
+			summary,
+			status,
+			assignee,
+			issueType,
+		})
+	}
+
+	return v.Table(headers, rows)
 }
 
 func newAddCmd(opts *root.Options) *cobra.Command {
@@ -243,6 +290,8 @@ func newAddCmd(opts *root.Options) *cobra.Command {
 }
 
 func runAdd(ctx context.Context, opts *root.Options, sprintID int, issueKeys []string) error {
+	v := opts.View()
+
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
@@ -252,9 +301,11 @@ func runAdd(ctx context.Context, opts *root.Options, sprintID int, issueKeys []s
 		return err
 	}
 
-	model := jtkpresent.SprintPresenter{}.PresentMoved(issueKeys, sprintID)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
+	if len(issueKeys) == 1 {
+		v.Success("Moved %s to sprint %d", issueKeys[0], sprintID)
+	} else {
+		v.Success("Moved %d issues to sprint %d", len(issueKeys), sprintID)
+	}
+
 	return nil
 }

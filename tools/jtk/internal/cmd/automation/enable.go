@@ -2,14 +2,10 @@ package automation
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func newEnableCmd(opts *root.Options) *cobra.Command {
@@ -29,6 +25,8 @@ func newEnableCmd(opts *root.Options) *cobra.Command {
 }
 
 func runSetState(ctx context.Context, opts *root.Options, ruleID string, enabled bool) error {
+	v := opts.View()
+
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
@@ -46,10 +44,7 @@ func runSetState(ctx context.Context, opts *root.Options, ruleID string, enabled
 	}
 
 	if current.State == newState {
-		model := jtkpresent.AutomationPresenter{}.PresentNoChange(current.Name, newState)
-		out := present.Render(model, opts.RenderStyle())
-		fmt.Fprint(opts.Stdout, out.Stdout)
-		fmt.Fprint(opts.Stderr, out.Stderr)
+		v.Info("Rule %q is already %s", current.Name, newState)
 		return nil
 	}
 
@@ -57,9 +52,6 @@ func runSetState(ctx context.Context, opts *root.Options, ruleID string, enabled
 		return err
 	}
 
-	model := jtkpresent.AutomationPresenter{}.PresentStateChanged(current.Name, current.State, newState)
-	out := present.Render(model, opts.RenderStyle())
-	fmt.Fprint(opts.Stdout, out.Stdout)
-	fmt.Fprint(opts.Stderr, out.Stderr)
+	v.Success("Rule %q: %s → %s", current.Name, current.State, newState)
 	return nil
 }

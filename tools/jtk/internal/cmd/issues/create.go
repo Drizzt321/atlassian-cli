@@ -7,11 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/text"
 )
 
@@ -135,10 +132,8 @@ func runCreate(ctx context.Context, opts *root.Options, project, issueType, summ
 		return v.JSON(issue)
 	}
 
-	// Success message includes the URL for convenience
-	model := jtkpresent.IssuePresenter{}.PresentCreated(issue.Key, client.IssueURL(issue.Key))
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
+	v.Success("Created issue %s", issue.Key)
+	v.Info("URL: %s", client.IssueURL(issue.Key))
+
 	return nil
 }

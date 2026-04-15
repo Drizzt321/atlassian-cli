@@ -9,12 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-	"github.com/open-cli-collective/atlassian-go/view"
-
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 // Register registers the attachments commands
@@ -68,35 +64,37 @@ func runList(ctx context.Context, opts *root.Options, issueKey string) error {
 	}
 
 	if len(attachments) == 0 {
-		model := jtkpresent.AttachmentPresenter{}.PresentEmpty(issueKey)
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+		v.Info("No attachments found on %s", issueKey)
 		return nil
 	}
 
-	if v.Format == view.FormatJSON {
-		data := make([]map[string]any, 0, len(attachments))
-		for _, att := range attachments {
-			data = append(data, map[string]any{
-				"id":       att.ID.String(),
-				"filename": att.Filename,
-				"size":     att.Size,
-				"mimeType": att.MimeType,
-				"created":  att.Created,
-				"author":   att.Author.DisplayName,
-				"content":  att.Content,
-			})
-		}
+	headers := []string{"ID", "FILENAME", "SIZE", "CREATED", "AUTHOR"}
+	rows := make([][]string, 0, len(attachments))
 
-		return v.JSON(data)
+	for _, att := range attachments {
+		rows = append(rows, []string{
+			att.ID.String(),
+			att.Filename,
+			api.FormatFileSize(att.Size),
+			att.Created[:10], // Date only
+			att.Author.DisplayName,
+		})
 	}
 
-	// Text path: presenter → render → write
-	model := jtkpresent.AttachmentPresenter{}.PresentList(attachments)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-	return nil
+	data := make([]map[string]any, 0, len(attachments))
+	for _, att := range attachments {
+		data = append(data, map[string]any{
+			"id":       att.ID.String(),
+			"filename": att.Filename,
+			"size":     att.Size,
+			"mimeType": att.MimeType,
+			"created":  att.Created,
+			"author":   att.Author.DisplayName,
+			"content":  att.Content,
+		})
+	}
+
+	return v.Render(headers, rows, data)
 }
 
 func newAddCmd(opts *root.Options) *cobra.Command {
@@ -124,6 +122,8 @@ func newAddCmd(opts *root.Options) *cobra.Command {
 }
 
 func runAdd(ctx context.Context, opts *root.Options, issueKey string, files []string) error {
+	v := opts.View()
+
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
@@ -147,9 +147,7 @@ func runAdd(ctx context.Context, opts *root.Options, issueKey string, files []st
 		}
 
 		for _, att := range attachments {
-			model := jtkpresent.AttachmentPresenter{}.PresentUploaded(att.Filename, att.ID.String(), api.FormatFileSize(att.Size))
-			out := present.Render(model, opts.RenderStyle())
-			_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+			v.Success("Uploaded %s (ID: %s, Size: %s)", att.Filename, att.ID.String(), api.FormatFileSize(att.Size))
 		}
 	}
 
@@ -184,6 +182,8 @@ func newGetCmd(opts *root.Options) *cobra.Command {
 }
 
 func runGet(ctx context.Context, opts *root.Options, attachmentID, outputPath string) error {
+	v := opts.View()
+
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
@@ -206,9 +206,7 @@ func runGet(ctx context.Context, opts *root.Options, attachmentID, outputPath st
 		actualPath = filepath.Join(outputPath, attachment.Filename)
 	}
 
-	model := jtkpresent.AttachmentPresenter{}.PresentDownloaded(actualPath, api.FormatFileSize(attachment.Size))
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+	v.Success("Downloaded %s (%s)", actualPath, api.FormatFileSize(attachment.Size))
 	return nil
 }
 
@@ -230,6 +228,8 @@ func newDeleteCmd(opts *root.Options) *cobra.Command {
 }
 
 func runDelete(ctx context.Context, opts *root.Options, attachmentID string) error {
+	v := opts.View()
+
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
@@ -239,8 +239,6 @@ func runDelete(ctx context.Context, opts *root.Options, attachmentID string) err
 		return fmt.Errorf("deleting attachment: %w", err)
 	}
 
-	model := jtkpresent.AttachmentPresenter{}.PresentDeleted(attachmentID)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+	v.Success("Deleted attachment %s", attachmentID)
 	return nil
 }

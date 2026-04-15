@@ -2,16 +2,11 @@ package projects
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-	"github.com/open-cli-collective/atlassian-go/view"
-
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func newUpdateCmd(opts *root.Options) *cobra.Command {
@@ -63,12 +58,11 @@ func runUpdate(ctx context.Context, opts *root.Options, keyOrID, name, descripti
 		return err
 	}
 
-	if v.Format == view.FormatJSON {
+	if opts.Output == "json" {
 		return v.JSON(project)
 	}
 
-	model := jtkpresent.ProjectPresenter{}.PresentUpdated(project.Key)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+	v.Success("Updated project %s", project.Key)
+
 	return nil
 }

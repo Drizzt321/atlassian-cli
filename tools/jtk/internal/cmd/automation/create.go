@@ -8,10 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func newCreateCmd(opts *root.Options) *cobra.Command {
@@ -47,6 +44,7 @@ New rules are created in DISABLED state by default.`,
 }
 
 func runCreate(ctx context.Context, opts *root.Options, filePath string) error {
+	v := opts.View()
 
 	// Read and validate file before creating the API client so we fail
 	// fast on bad input without needing network access.
@@ -95,9 +93,7 @@ func runCreate(ctx context.Context, opts *root.Options, filePath string) error {
 	}
 	if err := json.Unmarshal(respBody, &created); err != nil {
 		// Even if we can't parse the response, the rule was created.
-		model := jtkpresent.AutomationPresenter{}.PresentCreatedUnparsed()
-		out := present.Render(model, opts.RenderStyle())
-		fmt.Fprint(opts.Stdout, out.Stdout)
+		v.Success("Created automation rule (could not parse response for details)")
 		return nil
 	}
 
@@ -112,14 +108,11 @@ func runCreate(ctx context.Context, opts *root.Options, filePath string) error {
 		identifier = created.ID.String()
 	}
 
-	var model *present.OutputModel
 	if created.Name != "" {
-		model = jtkpresent.AutomationPresenter{}.PresentCreated(created.Name, identifier)
+		v.Success("Created automation rule: %s (UUID: %s)", created.Name, identifier)
 	} else {
-		model = jtkpresent.AutomationPresenter{}.PresentCreatedMinimal(identifier)
+		v.Success("Created automation rule (UUID: %s)", identifier)
 	}
-	out := present.Render(model, opts.RenderStyle())
-	fmt.Fprint(opts.Stdout, out.Stdout)
 
 	return nil
 }

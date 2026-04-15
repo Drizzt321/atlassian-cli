@@ -8,11 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func newMoveCmd(opts *root.Options) *cobra.Command {
@@ -67,7 +64,7 @@ Limitations:
 }
 
 func runMove(ctx context.Context, opts *root.Options, issueKeys []string, targetProject, targetType string, notify, wait bool) error {
-	ip := jtkpresent.IssuePresenter{}
+	v := opts.View()
 
 	if len(issueKeys) > 1000 {
 		return fmt.Errorf("cannot move more than 1000 issues at once (got %d)", len(issueKeys))
@@ -125,23 +122,17 @@ func runMove(ctx context.Context, opts *root.Options, issueKeys []string, target
 	}
 
 	if targetIssueType == nil {
-		var availableTypes []string
+		v.Error("Issue type not found in target project")
+		v.Info("Available types in %s:", targetProject)
 		for _, t := range issueTypes {
 			if !t.Subtask {
-				availableTypes = append(availableTypes, t.Name)
+				v.Info("  - %s", t.Name)
 			}
 		}
-		model := ip.PresentTypeNotFound(targetType, targetProject, availableTypes)
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-		_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
 		return fmt.Errorf("issue type not found: %s", targetType)
 	}
 
-	// Progress message to stderr
-	progressModel := ip.PresentMoveProgress(len(issueKeys), targetProject, targetIssueType.Name)
-	progressOut := present.Render(progressModel, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stderr, progressOut.Stderr)
+	v.Info("Moving %d issue(s) to %s (%s)...", len(issueKeys), targetProject, targetIssueType.Name)
 
 	// Build and execute the move request
 	req := api.BuildMoveRequest(issueKeys, targetProject, targetIssueType.ID, notify)
@@ -156,17 +147,13 @@ func runMove(ctx context.Context, opts *root.Options, issueKeys []string, target
 	}
 
 	if !wait {
-		model := ip.PresentMoveInitiated(resp.TaskID)
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-		_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
+		v.Success("Move initiated (Task ID: %s)", resp.TaskID)
+		v.Info("Check status with: jtk issues move-status %s", resp.TaskID)
 		return nil
 	}
 
-	// Wait for completion - progress to stderr
-	waitModel := ip.PresentMoveWaiting()
-	waitOut := present.Render(waitModel, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stderr, waitOut.Stderr)
+	// Wait for completion
+	v.Info("Waiting for move to complete...")
 
 	for {
 		status, err := client.GetMoveTaskStatus(ctx, resp.TaskID)
@@ -177,19 +164,16 @@ func runMove(ctx context.Context, opts *root.Options, issueKeys []string, target
 		switch status.Status {
 		case "COMPLETE":
 			if status.Result != nil && len(status.Result.Failed) > 0 {
-				failed := make([]jtkpresent.MoveFailedIssue, len(status.Result.Failed))
-				for i, f := range status.Result.Failed {
-					failed[i] = jtkpresent.MoveFailedIssue{Key: f.IssueKey, Errors: f.Errors}
+				v.Warning("Move completed with errors")
+				for _, failed := range status.Result.Failed {
+					v.Error("  %s: %s", failed.IssueKey, strings.Join(failed.Errors, ", "))
 				}
-				model := ip.PresentMovePartialFailure(status.Result.Successful, failed)
-				out := present.Render(model, opts.RenderStyle())
-				_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-				_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
+				if len(status.Result.Successful) > 0 {
+					v.Success("Successfully moved: %s", strings.Join(status.Result.Successful, ", "))
+				}
 				return fmt.Errorf("some issues failed to move")
 			}
-			model := ip.PresentMoved(len(issueKeys), targetProject)
-			out := present.Render(model, opts.RenderStyle())
-			_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+			v.Success("Moved %d issue(s) to %s", len(issueKeys), targetProject)
 			return nil
 
 		case "FAILED":
@@ -241,9 +225,30 @@ func runMoveStatus(ctx context.Context, opts *root.Options, taskID string) error
 		return v.JSON(status)
 	}
 
-	model := jtkpresent.IssuePresenter{}.PresentMoveStatus(status)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
+	v.Println("Task ID:     %s", status.TaskID)
+	v.Println("Status:      %s", status.Status)
+	v.Println("Progress:    %d%%", status.Progress)
+	v.Println("Submitted:   %s", status.SubmittedAt)
+
+	if status.StartedAt != "" {
+		v.Println("Started:     %s", status.StartedAt)
+	}
+	if status.FinishedAt != "" {
+		v.Println("Finished:    %s", status.FinishedAt)
+	}
+
+	if status.Result != nil {
+		v.Println("")
+		if len(status.Result.Successful) > 0 {
+			v.Success("Successful: %s", strings.Join(status.Result.Successful, ", "))
+		}
+		if len(status.Result.Failed) > 0 {
+			v.Error("Failed:")
+			for _, failed := range status.Result.Failed {
+				v.Error("  %s: %s", failed.IssueKey, strings.Join(failed.Errors, ", "))
+			}
+		}
+	}
+
 	return nil
 }

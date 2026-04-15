@@ -3,16 +3,11 @@ package projects
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
-	"github.com/open-cli-collective/atlassian-go/view"
-
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
-	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 func newCreateCmd(opts *root.Options) *cobra.Command {
@@ -76,12 +71,11 @@ func runCreate(ctx context.Context, opts *root.Options, key, name, projectType, 
 		return err
 	}
 
-	if v.Format == view.FormatJSON {
+	if opts.Output == "json" {
 		return v.JSON(project)
 	}
 
-	model := jtkpresent.ProjectPresenter{}.PresentCreated(project.Key, name)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
+	v.Success("Created project %s (%s)", project.Key, name)
+
 	return nil
 }
