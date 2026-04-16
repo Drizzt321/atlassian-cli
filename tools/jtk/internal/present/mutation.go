@@ -36,7 +36,8 @@ func (MutationPresenter) Info(format string, args ...any) *present.OutputModel {
 	}
 }
 
-// Advisory creates a non-primary message that goes to stderr (pagination, hints).
+// Advisory creates a non-primary message that goes to stderr (for genuine
+// diagnostics that should not mix with primary output).
 func (MutationPresenter) Advisory(format string, args ...any) *present.OutputModel {
 	return &present.OutputModel{
 		Sections: []present.Section{

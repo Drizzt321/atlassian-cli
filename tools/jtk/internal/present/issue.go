@@ -324,19 +324,6 @@ func (IssuePresenter) PresentDeleteCancelled() *present.OutputModel {
 
 // --- Advisory methods (route to stderr) ---
 
-// PresentPaginationHint creates an advisory about more results.
-func (IssuePresenter) PresentPaginationHint() *present.OutputModel {
-	return &present.OutputModel{
-		Sections: []present.Section{
-			&present.MessageSection{
-				Kind:    present.MessageInfo,
-				Message: "More results available (use --next-page-token to fetch next page)",
-				Stream:  present.StreamStderr,
-			},
-		},
-	}
-}
-
 // PresentTypeChangeProgress creates an advisory about type change in progress.
 func (IssuePresenter) PresentTypeChangeProgress(key, typeName string) *present.OutputModel {
 	return &present.OutputModel{
@@ -503,13 +490,5 @@ func (p IssuePresenter) PresentListWithPagination(issues []api.Issue, hasMore bo
 		},
 	}
 
-	if hasMore {
-		sections = append(sections, &present.MessageSection{
-			Kind:    present.MessageInfo,
-			Message: "More results available (use --next-page-token to fetch next page)",
-			Stream:  present.StreamStderr,
-		})
-	}
-
-	return &present.OutputModel{Sections: sections}
+	return &present.OutputModel{Sections: AppendPaginationHint(sections, hasMore)}
 }

@@ -107,26 +107,36 @@ func runList(ctx context.Context, opts *root.Options, project, sprint string, ma
 		return err
 	}
 
+	hasMore := !result.Pagination.IsLast
+
+	if opts.EmitIDOnly() {
+		ids := make([]string, len(result.Issues))
+		for i, issue := range result.Issues {
+			ids[i] = issue.Key
+		}
+		return jtkpresent.EmitIDsWithPagination(opts, ids, hasMore)
+	}
+
 	if len(result.Issues) == 0 {
-		model := jtkpresent.IssuePresenter{}.PresentEmpty()
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-		return nil
+		// Two cases, each with a single unambiguous message:
+		//   hasMore=false → "No issues found" (the query's result set is empty)
+		//   hasMore=true  → pagination hint only (this page is empty but more
+		//                    pages exist; the agent should keep paging)
+		// Emitting both together would contradict itself; pick one.
+		if hasMore {
+			return jtkpresent.Emit(opts, &present.OutputModel{
+				Sections: jtkpresent.AppendPaginationHint(nil, true),
+			})
+		}
+		return jtkpresent.Emit(opts, jtkpresent.IssuePresenter{}.PresentEmpty())
 	}
 
 	// For JSON output, return the projected artifacts
 	if v.Format == view.FormatJSON {
 		arts := jtkartifact.ProjectIssues(result.Issues, opts.ArtifactMode())
-		hasMore := !result.Pagination.IsLast
 		return v.RenderArtifactList(artifact.NewListResult(arts, hasMore))
 	}
 
-	// Text path: presenter → render → write
-	hasMore := !result.Pagination.IsLast
 	model := jtkpresent.IssuePresenter{}.PresentListWithPagination(result.Issues, hasMore)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-
-	return nil
+	return jtkpresent.Emit(opts, model)
 }
