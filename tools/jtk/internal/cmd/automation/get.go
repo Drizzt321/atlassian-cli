@@ -23,13 +23,12 @@ func newGetCmd(opts *root.Options) *cobra.Command {
 		Long: `Retrieve and display details for a specific automation rule.
 
 Shows rule metadata and a summary of components. Use --show-components to see
-component type details. Use -o json for structured output. Use --full for
-additional fields (description, labels, tags).
+component type details. Use --extended for additional fields (description,
+labels, tags).
 
 For the exact JSON needed for editing, use 'jtk auto export' instead.`,
 		Example: `  jtk automation get 12345
-  jtk auto get 12345 --show-components
-  jtk auto get 12345 -o json`,
+  jtk auto get 12345 --show-components`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGet(cmd.Context(), opts, args[0], showComponents)

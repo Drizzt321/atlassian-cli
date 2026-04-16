@@ -152,11 +152,15 @@ These flags are available on all commands:
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--output` | `-o` | `table` | Output format: `table`, `json`, `plain` |
+| `--extended` | | `false` | Include admin/schema/audit fields in output |
+| `--fulltext` | | `false` | Disable truncation of descriptions and comments |
+| `--id` | | `false` | Emit only the primary identifier (takes precedence over `--extended` and `--fulltext`) |
 | `--no-color` | | `false` | Disable colored output |
 | `--verbose` | `-v` | `false` | Enable verbose output |
 | `--help` | `-h` | | Show help for command |
 | `--version` | | | Show version (root command only) |
+
+> `--output` / `-o` (`table`/`json`/`plain`) is retained for backward compatibility but is hidden from `--help`. Per-command migration to the text-first output model is tracked under #230.
 
 ---
 
@@ -196,8 +200,12 @@ Show information about the currently authenticated user.
 
 ```bash
 jtk me
-jtk me -o json
+jtk me --id     # print just the account ID (for scripting)
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--id` | `false` | Emit only the account ID (global) |
 
 ---
 
@@ -269,13 +277,15 @@ Get details of a specific issue.
 
 ```bash
 jtk issues get PROJ-123
-jtk issues get PROJ-123 --no-truncate
-jtk issues get PROJ-123 -o json
+jtk issues get PROJ-123 --fulltext
+jtk issues get PROJ-123 --id
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--no-truncate` | `false` | Show full description without truncation |
+| `--id` | `false` | Emit only the issue key (global) |
+| `--fulltext` | `false` | Show full description without truncation (global) |
+| `--no-truncate` | `false` | Deprecated alias for `--fulltext` (kept during migration) |
 
 **Arguments:**
 - `<issue-key>` - The issue key (e.g., `PROJ-123`) (**required**)
@@ -761,14 +771,15 @@ List comments on an issue.
 
 ```bash
 jtk comments list PROJ-123
-jtk comments list PROJ-123 --no-truncate
+jtk comments list PROJ-123 --fulltext
 jtk comments list PROJ-123 -o json
 ```
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--max` | `-m` | `50` | Maximum number of comments |
-| `--no-truncate` | | `false` | Show full comment bodies without truncation |
+| `--fulltext` | | `false` | Show full comment bodies without truncation (global) |
+| `--no-truncate` | | `false` | Deprecated alias for `--fulltext` (kept during migration) |
 
 **Arguments:**
 - `<issue-key>` - The issue key (**required**)
@@ -1110,8 +1121,12 @@ Get details for a specific user by account ID.
 
 ```bash
 jtk users get 5b10ac8d82e05b22cc7d4ef5
-jtk users get 5b10ac8d82e05b22cc7d4ef5 -o json
+jtk users get 5b10ac8d82e05b22cc7d4ef5 --id
 ```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--id` | `false` | Emit only the account ID (global) |
 
 **Arguments:**
 - `<account-id>` - The Atlassian account ID (**required**)
