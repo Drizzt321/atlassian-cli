@@ -333,3 +333,118 @@ func TestIssuePresenter_PresentMovePartialFailure_NoSuccessful(t *testing.T) {
 		t.Errorf("expected 2 sections when no successful, got %d", len(model.Sections))
 	}
 }
+
+// TestIssueListSpec_MatchesPresentListHeaders locks the IssueListSpec headers
+// against the hardcoded headers in PresentList AND PresentListWithPagination.
+// Commands call PresentListWithPagination (not PresentList); drift between
+// the two method implementations and the registry would silently break
+// ProjectTable in production.
+func TestIssueListSpec_MatchesPresentListHeaders(t *testing.T) {
+	t.Parallel()
+	issues := []api.Issue{{Key: "PROJ-1", Fields: api.IssueFields{Summary: "x"}}}
+
+	cases := []struct {
+		name  string
+		model *present.OutputModel
+	}{
+		{"PresentList", IssuePresenter{}.PresentList(issues)},
+		{"PresentListWithPagination_NoMore", IssuePresenter{}.PresentListWithPagination(issues, false)},
+		{"PresentListWithPagination_HasMore", IssuePresenter{}.PresentListWithPagination(issues, true)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var table *present.TableSection
+			for _, s := range tc.model.Sections {
+				if ts, ok := s.(*present.TableSection); ok {
+					table = ts
+					break
+				}
+			}
+			if table == nil {
+				t.Fatalf("no TableSection in %s output", tc.name)
+			}
+			if len(table.Headers) != len(IssueListSpec) {
+				t.Fatalf("header count mismatch: spec has %d, table has %d", len(IssueListSpec), len(table.Headers))
+			}
+			for i, spec := range IssueListSpec {
+				if table.Headers[i] != spec.Header {
+					t.Errorf("index %d: spec Header=%q, table header=%q", i, spec.Header, table.Headers[i])
+				}
+			}
+		})
+	}
+}
+
+// TestIssueDetailSpec_MatchesPresentDetailLabels locks the IssueDetailSpec
+// entries against the Field labels emitted by PresentDetail, both directions:
+//   - Every spec entry must appear in the rendered output.
+//   - Every rendered field must have a matching spec entry — otherwise
+//     --fields projection would silently drop it.
+//
+// Order is also checked: IssueDetailSpec's doc comment claims the spec order
+// matches the PresentDetail Field order, and ProjectDetail relies on that
+// for deterministic projection output.
+//
+// Description is conditional in PresentDetail; this test constructs an issue
+// with a description present so all spec entries should be rendered.
+func TestIssueDetailSpec_MatchesPresentDetailLabels(t *testing.T) {
+	t.Parallel()
+	issue := &api.Issue{
+		Key: "PROJ-1",
+		Fields: api.IssueFields{
+			Summary:     "s",
+			Status:      &api.Status{Name: "Open"},
+			IssueType:   &api.IssueType{Name: "Bug"},
+			Priority:    &api.Priority{Name: "High"},
+			Assignee:    &api.User{DisplayName: "Alice"},
+			Project:     &api.Project{Key: "PROJ"},
+			Description: &api.Description{Text: "body text"},
+		},
+	}
+	model := IssuePresenter{}.PresentDetail(issue, "https://example.com/PROJ-1", true)
+	detail := model.Sections[0].(*present.DetailSection)
+
+	// Spec → rendered: every spec entry has a corresponding rendered field.
+	renderedLabels := make(map[string]bool, len(detail.Fields))
+	for _, f := range detail.Fields {
+		renderedLabels[f.Label] = true
+	}
+	for _, spec := range IssueDetailSpec {
+		if !renderedLabels[spec.Header] {
+			t.Errorf("spec Header %q not emitted by PresentDetail", spec.Header)
+		}
+	}
+
+	// Rendered → spec: every rendered field has a corresponding spec entry.
+	// Without this, a new field added to PresentDetail would be silently
+	// unreachable via --fields.
+	specLabels := make(map[string]bool, len(IssueDetailSpec))
+	for _, spec := range IssueDetailSpec {
+		specLabels[spec.Header] = true
+	}
+	for _, f := range detail.Fields {
+		if !specLabels[f.Label] {
+			t.Errorf("rendered field %q has no matching IssueDetailSpec entry", f.Label)
+		}
+	}
+
+	// Order: the spec must list entries in the same relative order as
+	// PresentDetail's Field order, so ProjectDetail output is deterministic.
+	specOrder := make([]string, 0, len(IssueDetailSpec))
+	for _, spec := range IssueDetailSpec {
+		specOrder = append(specOrder, spec.Header)
+	}
+	renderedOrder := make([]string, 0, len(detail.Fields))
+	for _, f := range detail.Fields {
+		renderedOrder = append(renderedOrder, f.Label)
+	}
+	if len(specOrder) != len(renderedOrder) {
+		t.Fatalf("spec has %d entries, rendered has %d", len(specOrder), len(renderedOrder))
+	}
+	for i := range specOrder {
+		if specOrder[i] != renderedOrder[i] {
+			t.Errorf("order mismatch at index %d: spec=%q rendered=%q", i, specOrder[i], renderedOrder[i])
+		}
+	}
+}
