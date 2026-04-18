@@ -12,6 +12,7 @@ import (
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/resolve"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/text"
 )
 
@@ -28,8 +29,9 @@ func newCreateCmd(opts *root.Options) *cobra.Command {
 		Use:   "create",
 		Short: "Create a new issue",
 		Long:  "Create a new Jira issue with the specified fields.",
-		Example: `  # Create a basic task
+		Example: `  # Project and type accept keys or names; assignee accepts name, email, accountId, or "me"
   jtk issues create --project MYPROJECT --type Task --summary "Fix login bug"
+  jtk issues create --project "Platform Development" --type SDLC --summary "Fix login bug"
 
   # Create with description
   jtk issues create --project MYPROJECT --type Bug --summary "Login fails" --description "Users cannot log in with SSO"
@@ -37,11 +39,10 @@ func newCreateCmd(opts *root.Options) *cobra.Command {
   # Create as child of an epic
   jtk issues create --project MYPROJECT --type Task --summary "Subtask" --parent MYPROJECT-100
 
-  # Assign to yourself
+  # Assign to yourself, by email, or by display name
   jtk issues create --project MYPROJECT --type Task --summary "My task" --assignee me
-
-  # Assign by email
   jtk issues create --project MYPROJECT --type Task --summary "Their task" --assignee user@example.com
+  jtk issues create --project MYPROJECT --type Task --summary "Their task" --assignee "Aaron Wong"
 
   # Create with custom fields
   jtk issues create --project MYPROJECT --type Story --summary "New feature" --field priority=High`,
@@ -50,12 +51,12 @@ func newCreateCmd(opts *root.Options) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&project, "project", "p", "", "Project key (required)")
-	cmd.Flags().StringVarP(&issueType, "type", "t", "Task", "Issue type (Task, Bug, Story, etc.)")
+	cmd.Flags().StringVarP(&project, "project", "p", "", "Project key or name (required)")
+	cmd.Flags().StringVarP(&issueType, "type", "t", "Task", "Issue type name (resolved via cache)")
 	cmd.Flags().StringVarP(&summary, "summary", "s", "", "Issue summary (required)")
 	cmd.Flags().StringVarP(&description, "description", "d", "", "Issue description")
 	cmd.Flags().StringVar(&parent, "parent", "", "Parent issue key (epic or parent issue)")
-	cmd.Flags().StringVarP(&assignee, "assignee", "a", "", "Assignee (account ID, email, or \"me\")")
+	cmd.Flags().StringVarP(&assignee, "assignee", "a", "", "Assignee: accountId, email, display name, or \"me\"")
 	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Additional fields (key=value)")
 
 	_ = cmd.MarkFlagRequired("project")
@@ -116,15 +117,32 @@ func runCreate(ctx context.Context, opts *root.Options, project, issueType, summ
 		extraFields["parent"] = map[string]string{"key": parent}
 	}
 
+	resolver := resolve.New(client)
+
+	resolvedProject, err := resolver.Project(ctx, project)
+	if err != nil {
+		return err
+	}
+	projectKey := resolvedProject.Key
+
+	resolvedType, err := resolver.IssueType(ctx, projectKey, issueType)
+	if err != nil {
+		return err
+	}
+	typeName := resolvedType.Name
+	if typeName == "" {
+		typeName = issueType
+	}
+
 	if assignee != "" {
-		accountID, err := resolveAssignee(ctx, client, assignee)
+		resolvedUser, err := resolver.User(ctx, assignee)
 		if err != nil {
 			return err
 		}
-		extraFields["assignee"] = map[string]string{"accountId": accountID}
+		extraFields["assignee"] = map[string]string{"accountId": resolvedUser.AccountID}
 	}
 
-	req := api.BuildCreateRequest(project, issueType, summary, text.InterpretEscapes(description), extraFields)
+	req := api.BuildCreateRequest(projectKey, typeName, summary, text.InterpretEscapes(description), extraFields)
 
 	issue, err := client.CreateIssue(ctx, req)
 	if err != nil {

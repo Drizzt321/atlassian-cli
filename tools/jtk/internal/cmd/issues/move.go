@@ -2,7 +2,9 @@ package issues
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -11,8 +13,10 @@ import (
 	"github.com/open-cli-collective/atlassian-go/present"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/cache"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/resolve"
 )
 
 func newMoveCmd(opts *root.Options) *cobra.Command {
@@ -36,11 +40,9 @@ Limitations:
 - Maximum 1000 issues per request
 - Subtasks must be moved with their parent or separately
 - Some field values may need to be remapped manually`,
-		Example: `  # Move a single issue to another project
+		Example: `  # --to-project accepts a key or name; --to-type accepts a type name
   jtk issues move PROJ-123 --to-project NEWPROJ
-
-  # Move to specific issue type
-  jtk issues move PROJ-123 --to-project NEWPROJ --to-type Task
+  jtk issues move PROJ-123 --to-project "Platform Development" --to-type Task
 
   # Move multiple issues
   jtk issues move PROJ-123 PROJ-124 PROJ-125 --to-project NEWPROJ
@@ -56,8 +58,8 @@ Limitations:
 		},
 	}
 
-	cmd.Flags().StringVar(&targetProject, "to-project", "", "Target project key (required)")
-	cmd.Flags().StringVar(&targetType, "to-type", "", "Target issue type (default: same as source)")
+	cmd.Flags().StringVar(&targetProject, "to-project", "", "Target project key or name (required)")
+	cmd.Flags().StringVar(&targetType, "to-type", "", "Target issue type name (default: same as source, resolved via cache)")
 	cmd.Flags().BoolVar(&notify, "notify", true, "Send notifications for the move")
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for the move to complete")
 
@@ -78,73 +80,70 @@ func runMove(ctx context.Context, opts *root.Options, issueKeys []string, target
 		return err
 	}
 
-	// Get target project's issue types to validate or default the type
-	issueTypes, err := client.GetProjectIssueTypes(ctx, targetProject)
+	resolver := resolve.New(client)
+
+	resolvedProject, err := resolver.Project(ctx, targetProject)
 	if err != nil {
-		return fmt.Errorf("getting target project issue types: %w", err)
+		return err
 	}
+	projectKey := resolvedProject.Key
 
-	if len(issueTypes) == 0 {
-		return fmt.Errorf("target project %s has no issue types", targetProject)
-	}
-
-	// Find target issue type
+	// The bulk-move API addresses targets as "PROJECT_KEY,ISSUE_TYPE_ID",
+	// so we need a concrete numeric ID at request time. Both resolution
+	// paths below MUST yield an IssueType with a non-empty ID; a
+	// cold-cache synthetic (Name only) can't satisfy that contract.
 	var targetIssueType *api.IssueType
 	if targetType == "" {
-		// Get the source issue's type to use as default
 		issue, err := client.GetIssue(ctx, issueKeys[0])
 		if err != nil {
 			return fmt.Errorf("getting source issue: %w", err)
 		}
-
+		if issue.Fields.IssueType == nil {
+			return fmt.Errorf("source issue %s has no issue type", issueKeys[0])
+		}
 		sourceTypeName := issue.Fields.IssueType.Name
-		for i := range issueTypes {
-			if strings.EqualFold(issueTypes[i].Name, sourceTypeName) {
-				targetIssueType = &issueTypes[i]
-				break
+		// Cache-first with a targeted single-project live fallback on
+		// cold cache. Using the cache avoids N+1 fetches during bulk
+		// moves; the live fallback preserves the pre-cache O(1) cold-
+		// start cost (one GetProjectIssueTypes call for the target
+		// project) instead of pulling the entire multi-project
+		// issuetypes envelope just to answer one lookup.
+		match, derr := matchCachedIssueType(projectKey, sourceTypeName, opts.Stderr)
+		if derr != nil && errors.Is(derr, errIssueTypesCacheUninitialized) {
+			liveTypes, lerr := client.GetProjectIssueTypes(ctx, projectKey)
+			if lerr != nil {
+				return fmt.Errorf("%w (live fetch also failed: %w)", derr, lerr)
 			}
+			match, derr = matchIssueTypeInSlice(liveTypes, projectKey, sourceTypeName, opts.Stderr)
 		}
-
-		if targetIssueType == nil {
-			// Fall back to first non-subtask type
-			for i := range issueTypes {
-				if !issueTypes[i].Subtask {
-					targetIssueType = &issueTypes[i]
-					break
-				}
-			}
+		if derr != nil {
+			return derr
 		}
+		targetIssueType = match
 	} else {
-		// Find by name
-		for i := range issueTypes {
-			if strings.EqualFold(issueTypes[i].Name, targetType) {
-				targetIssueType = &issueTypes[i]
-				break
-			}
+		resolved, err := resolver.IssueType(ctx, projectKey, targetType)
+		if err != nil {
+			return err
 		}
+		targetIssueType = &resolved
 	}
-
-	if targetIssueType == nil {
-		var availableTypes []string
-		for _, t := range issueTypes {
-			if !t.Subtask {
-				availableTypes = append(availableTypes, t.Name)
-			}
-		}
-		model := ip.PresentTypeNotFound(targetType, targetProject, availableTypes)
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-		_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-		return fmt.Errorf("issue type not found: %s", targetType)
+	if targetIssueType.ID == "" {
+		// The resolver's cold-start fallback yields a Name-only synthetic,
+		// which would produce an invalid "PROJECT_KEY," mapping and an
+		// opaque API rejection. Surface a clear, actionable error instead.
+		return fmt.Errorf(
+			"cannot resolve issue type ID for %q in project %s from cache — "+
+				"run `jtk refresh issuetypes` (requires `jtk refresh projects` first if projects are stale)",
+			targetIssueType.Name, projectKey)
 	}
 
 	// Progress message to stderr
-	progressModel := ip.PresentMoveProgress(len(issueKeys), targetProject, targetIssueType.Name)
+	progressModel := ip.PresentMoveProgress(len(issueKeys), projectKey, targetIssueType.Name)
 	progressOut := present.Render(progressModel, opts.RenderStyle())
 	_, _ = fmt.Fprint(opts.Stderr, progressOut.Stderr)
 
 	// Build and execute the move request
-	req := api.BuildMoveRequest(issueKeys, targetProject, targetIssueType.ID, notify)
+	req := api.BuildMoveRequest(issueKeys, projectKey, targetIssueType.ID, notify)
 
 	resp, err := client.MoveIssues(ctx, req)
 	if err != nil {
@@ -183,7 +182,7 @@ func runMove(ctx context.Context, opts *root.Options, issueKeys []string, target
 				_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
 				return fmt.Errorf("some issues failed to move")
 			}
-			model := ip.PresentMoved(len(issueKeys), targetProject)
+			model := ip.PresentMoved(len(issueKeys), projectKey)
 			out := present.Render(model, opts.RenderStyle())
 			_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
 			return nil
@@ -242,4 +241,58 @@ func runMoveStatus(ctx context.Context, opts *root.Options, taskID string) error
 	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
 	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
 	return nil
+}
+
+// matchCachedIssueType looks up sourceTypeName in the target project's cached
+// issue types and, failing that, returns the first non-subtask type. Cache-
+// authoritative: no refresh, no live fallback. Used by `issues move` when
+// --to-type is omitted.
+//
+// Only cache.ErrCacheMiss maps to the "cold cache" fallback case — any other
+// read error (I/O, permission, corrupt envelope) propagates so the user sees
+// the real problem instead of a misleading "cache missing" message. The
+// refresh hint is left to the caller since the root cause differs between
+// the cold-cache and the "populated but empty" paths.
+// errIssueTypesCacheUninitialized signals that the issuetypes envelope
+// doesn't exist yet, so a caller can attempt a one-shot refresh before
+// giving up (matches the resolver.IssueType path for --to-type).
+var errIssueTypesCacheUninitialized = errors.New("issuetypes cache not initialized — run `jtk refresh issuetypes`")
+
+func matchCachedIssueType(projectKey, sourceTypeName string, warn io.Writer) (*api.IssueType, error) {
+	env, err := cache.ReadResource[map[string][]api.IssueType]("issuetypes")
+	if err != nil {
+		if errors.Is(err, cache.ErrCacheMiss) {
+			return nil, errIssueTypesCacheUninitialized
+		}
+		return nil, fmt.Errorf("reading issuetypes cache: %w", err)
+	}
+	types, ok := env.Data[projectKey]
+	if !ok || len(types) == 0 {
+		return nil, fmt.Errorf("no cached issue types for project %s (run `jtk refresh issuetypes` or supply --to-type)", projectKey)
+	}
+	return matchIssueTypeInSlice(types, projectKey, sourceTypeName, warn)
+}
+
+// matchIssueTypeInSlice picks a target issue type from an unordered list.
+// Preferred: exact name match (case-insensitive) with the source type.
+// Fallback: first non-subtask — emits a stderr warning because this can
+// silently change the issue type (e.g. Bug → Task) when the source type
+// doesn't exist in the target project.
+func matchIssueTypeInSlice(types []api.IssueType, projectKey, sourceTypeName string, warn io.Writer) (*api.IssueType, error) {
+	for i := range types {
+		if strings.EqualFold(types[i].Name, sourceTypeName) {
+			return &types[i], nil
+		}
+	}
+	for i := range types {
+		if !types[i].Subtask {
+			if warn != nil {
+				fmt.Fprintf(warn,
+					"warning: source issue type %q not found in project %s; using %q as the target type (pass --to-type to override).\n",
+					sourceTypeName, projectKey, types[i].Name)
+			}
+			return &types[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no non-subtask issue types available for project %s", projectKey)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/cache"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 )
 
@@ -102,6 +103,16 @@ func TestNewUpdateCmd(t *testing.T) {
 }
 
 func TestRunUpdate_TypeChange(t *testing.T) {
+	seedCacheForIssues(t)
+	// Override the generic Task=10000 seed with the mapping this test expects
+	// end-to-end: PROJ's Task type has ID 10001.
+	testutil.RequireNoError(t, cache.WriteResource("issuetypes", "24h", map[string][]api.IssueType{
+		"PROJ": {
+			{ID: "10000", Name: "Epic"},
+			{ID: "10001", Name: "Task"},
+			{ID: "10002", Name: "Story"},
+		},
+	}))
 	var moveBody []byte
 	moveCompleted := false
 
@@ -397,6 +408,9 @@ func TestUpdateCmd_CobraExecution_WithParent(t *testing.T) {
 }
 
 func TestRunUpdate_AssigneeOnly(t *testing.T) {
+	// The assignee resolver reads the cache before falling through to
+	// accountId shape pass-through, so InstanceKey() must resolve.
+	t.Cleanup(cache.SetInstanceKeyForTest("test.atlassian.net"))
 	var capturedBody []byte
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -487,6 +501,7 @@ func TestRunUpdate_AssigneeMe(t *testing.T) {
 }
 
 func TestUpdateCmd_CobraExecution_WithAssignee(t *testing.T) {
+	t.Cleanup(cache.SetInstanceKeyForTest("test.atlassian.net"))
 	var capturedBody []byte
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

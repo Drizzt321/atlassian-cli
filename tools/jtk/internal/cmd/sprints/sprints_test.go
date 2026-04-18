@@ -14,8 +14,34 @@ import (
 	"github.com/open-cli-collective/atlassian-go/testutil"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/cache"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 )
+
+// seedBoardsAndSprints seeds the instance-scoped caches used by the Cobra
+// entry-point tests below. Pairs with cache.SetRootForTest for full
+// isolation; returns nothing (cleanup runs via t.Cleanup).
+func seedBoardsAndSprints(t *testing.T, boards []api.Board, byBoard map[int][]api.Sprint) {
+	t.Helper()
+	t.Cleanup(cache.SetRootForTest(t.TempDir()))
+	t.Cleanup(cache.SetInstanceKeyForTest("test.atlassian.net"))
+	testutil.RequireNoError(t, cache.WriteResource("boards", "24h", boards))
+	if byBoard != nil {
+		testutil.RequireNoError(t, cache.WriteResource("sprints", "24h", byBoard))
+	}
+}
+
+// newAgileClient builds an api.Client pointed at the given server with a
+// URL that triggers SupportsAgile() so the boards/sprints PersistentPreRunE
+// guard passes. The default httptest URL works because SupportsAgile checks
+// for AgileURL being non-empty — AgileURL is populated whenever BaseURL is
+// a non-api.atlassian.com host.
+func newAgileClient(t *testing.T, server *httptest.Server) *api.Client {
+	t.Helper()
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+	return client
+}
 
 // --- list subcommand ---
 
@@ -29,7 +55,7 @@ func TestNewListCmd(t *testing.T) {
 
 	boardFlag := cmd.Flags().Lookup("board")
 	testutil.NotNil(t, boardFlag)
-	testutil.Equal(t, boardFlag.DefValue, "0")
+	testutil.Equal(t, boardFlag.DefValue, "")
 
 	stateFlag := cmd.Flags().Lookup("state")
 	testutil.NotNil(t, stateFlag)
@@ -72,7 +98,7 @@ func TestRunList_Table(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runList(context.Background(), opts, 123, "", 50)
+	err = runList(context.Background(), opts, client, 123, "", 50)
 	testutil.RequireNoError(t, err)
 
 	output := stdout.String()
@@ -102,7 +128,7 @@ func TestRunList_JSON(t *testing.T) {
 	opts := &root.Options{Output: "json", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runList(context.Background(), opts, 123, "", 50)
+	err = runList(context.Background(), opts, client, 123, "", 50)
 	testutil.RequireNoError(t, err)
 
 	output := stdout.String()
@@ -122,7 +148,7 @@ func TestRunList_Empty(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runList(context.Background(), opts, 123, "", 50)
+	err = runList(context.Background(), opts, client, 123, "", 50)
 	testutil.RequireNoError(t, err)
 
 	testutil.Contains(t, stdout.String(), "No sprints found")
@@ -143,7 +169,7 @@ func TestRunList_NullDates(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runList(context.Background(), opts, 123, "", 50)
+	err = runList(context.Background(), opts, client, 123, "", 50)
 	testutil.RequireNoError(t, err)
 
 	output := stdout.String()
@@ -163,7 +189,7 @@ func TestNewCurrentCmd(t *testing.T) {
 
 	boardFlag := cmd.Flags().Lookup("board")
 	testutil.NotNil(t, boardFlag)
-	testutil.Equal(t, boardFlag.DefValue, "0")
+	testutil.Equal(t, boardFlag.DefValue, "")
 }
 
 func TestRunCurrent_Table(t *testing.T) {
@@ -183,7 +209,7 @@ func TestRunCurrent_Table(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runCurrent(context.Background(), opts, 123)
+	err = runCurrent(context.Background(), opts, client, 123)
 	testutil.RequireNoError(t, err)
 
 	output := stdout.String()
@@ -210,7 +236,7 @@ func TestRunCurrent_JSON(t *testing.T) {
 	opts := &root.Options{Output: "json", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runCurrent(context.Background(), opts, 123)
+	err = runCurrent(context.Background(), opts, client, 123)
 	testutil.RequireNoError(t, err)
 
 	output := stdout.String()
@@ -235,7 +261,7 @@ func TestRunCurrent_WithGoal(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runCurrent(context.Background(), opts, 123)
+	err = runCurrent(context.Background(), opts, client, 123)
 	testutil.RequireNoError(t, err)
 
 	testutil.Contains(t, stdout.String(), "Ship feature X")
@@ -252,7 +278,7 @@ func TestRunCurrent_NotFound(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runCurrent(context.Background(), opts, 123)
+	err = runCurrent(context.Background(), opts, client, 123)
 	testutil.NotNil(t, err)
 	testutil.Contains(t, err.Error(), "no active sprint")
 }
@@ -381,7 +407,7 @@ func TestNewAddCmd(t *testing.T) {
 	opts := &root.Options{}
 	cmd := newAddCmd(opts)
 
-	testutil.Equal(t, cmd.Use, "add <sprint-id> <issue-key>...")
+	testutil.Equal(t, cmd.Use, "add <sprint> <issue-key>...")
 	testutil.NotEmpty(t, cmd.Short)
 }
 
@@ -408,7 +434,7 @@ func TestRunAdd_Success(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}, NoColor: true}
 	opts.SetAPIClient(client)
 
-	err = runAdd(context.Background(), opts, 123, []string{"PROJ-101", "PROJ-102"})
+	err = runAdd(context.Background(), opts, client, 123, []string{"PROJ-101", "PROJ-102"})
 	testutil.RequireNoError(t, err)
 
 	testutil.Contains(t, stdout.String(), fmt.Sprintf("Moved 2 issues to sprint %d", 123))
@@ -427,10 +453,183 @@ func TestRunAdd_SingleIssue(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}, NoColor: true}
 	opts.SetAPIClient(client)
 
-	err = runAdd(context.Background(), opts, 123, []string{"PROJ-101"})
+	err = runAdd(context.Background(), opts, client, 123, []string{"PROJ-101"})
 	testutil.RequireNoError(t, err)
 
 	testutil.Contains(t, stdout.String(), "Moved PROJ-101 to sprint 123")
+}
+
+// --- Cobra entry-point tests that exercise the resolver ---
+
+func TestListCmd_ResolvesBoardByName(t *testing.T) {
+	// --board "MON board" must resolve via the cached boards to ID 23
+	// before hitting the sprints endpoint.
+	seedBoardsAndSprints(t,
+		[]api.Board{{ID: 23, Name: "MON board", Type: "scrum"}},
+		nil,
+	)
+
+	var capturedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(api.SprintsResponse{IsLast: true, Values: []api.Sprint{}})
+	}))
+	defer server.Close()
+
+	client := newAgileClient(t, server)
+
+	rootCmd, opts := root.NewCmd()
+	opts.SetAPIClient(client)
+	opts.Stdout = &bytes.Buffer{}
+	opts.Stderr = &bytes.Buffer{}
+	Register(rootCmd, opts)
+
+	rootCmd.SetArgs([]string{"sprints", "list", "--board", "MON board"})
+	err := rootCmd.Execute()
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, capturedPath, "/rest/agile/1.0/board/23/sprint")
+}
+
+func TestCurrentCmd_ResolvesBoardByName(t *testing.T) {
+	seedBoardsAndSprints(t,
+		[]api.Board{{ID: 23, Name: "MON board", Type: "scrum"}},
+		nil,
+	)
+
+	var capturedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(api.SprintsResponse{
+			IsLast: true,
+			Values: []api.Sprint{{ID: 125, Name: "MON Sprint 70", State: "active"}},
+		})
+	}))
+	defer server.Close()
+
+	client := newAgileClient(t, server)
+
+	rootCmd, opts := root.NewCmd()
+	opts.SetAPIClient(client)
+	opts.Stdout = &bytes.Buffer{}
+	opts.Stderr = &bytes.Buffer{}
+	Register(rootCmd, opts)
+
+	rootCmd.SetArgs([]string{"sprints", "current", "--board", "MON board"})
+	err := rootCmd.Execute()
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, capturedPath, "/rest/agile/1.0/board/23/sprint")
+}
+
+func TestAddCmd_ResolvesSprintByName(t *testing.T) {
+	// `jtk sprints add "MON Sprint 70" PROJ-1` must resolve the name via
+	// cache to sprint ID 125, then POST to /sprint/125/issue.
+	seedBoardsAndSprints(t,
+		[]api.Board{{ID: 23, Name: "MON board"}},
+		map[int][]api.Sprint{
+			23: {{ID: 125, Name: "MON Sprint 70", State: "active"}},
+		},
+	)
+
+	var capturedPath string
+	var capturedIssues []any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if v, ok := body["issues"].([]any); ok {
+			capturedIssues = v
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := newAgileClient(t, server)
+
+	rootCmd, opts := root.NewCmd()
+	opts.SetAPIClient(client)
+	opts.Stdout = &bytes.Buffer{}
+	opts.Stderr = &bytes.Buffer{}
+	opts.NoColor = true
+	Register(rootCmd, opts)
+
+	rootCmd.SetArgs([]string{"sprints", "add", "MON Sprint 70", "PROJ-1"})
+	err := rootCmd.Execute()
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, capturedPath, "/rest/agile/1.0/sprint/125/issue")
+	testutil.Len(t, capturedIssues, 1)
+}
+
+func TestAddCmd_AmbiguousSprintAcrossBoardsErrors(t *testing.T) {
+	// Two boards with a sprint of the same name — `sprints add "Sprint 1"`
+	// with no --board scope must surface AmbiguousMatchError, not silently
+	// pick one.
+	seedBoardsAndSprints(t,
+		[]api.Board{
+			{ID: 23, Name: "MON board"},
+			{ID: 24, Name: "ON board"},
+		},
+		map[int][]api.Sprint{
+			23: {{ID: 125, Name: "Sprint 1", State: "active"}},
+			24: {{ID: 200, Name: "Sprint 1", State: "closed"}},
+		},
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("sprints add must fail before hitting the API on ambiguous input")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := newAgileClient(t, server)
+
+	rootCmd, opts := root.NewCmd()
+	opts.SetAPIClient(client)
+	opts.Stdout = &bytes.Buffer{}
+	opts.Stderr = &bytes.Buffer{}
+	opts.NoColor = true
+	Register(rootCmd, opts)
+
+	rootCmd.SetArgs([]string{"sprints", "add", "Sprint 1", "PROJ-1"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatalf("expected ambiguous-match error, got nil")
+	}
+	if !strings.Contains(err.Error(), "Ambiguous sprint") {
+		t.Fatalf("expected 'Ambiguous sprint' in error, got: %v", err)
+	}
+	// Error should list both candidate boards so the user can disambiguate.
+	if !strings.Contains(err.Error(), "MON board") || !strings.Contains(err.Error(), "ON board") {
+		t.Fatalf("expected both board names in error, got: %v", err)
+	}
+}
+
+func TestAddCmd_NumericSprintPassThrough(t *testing.T) {
+	// Numeric sprint arg bypasses cache lookup and targets the given ID.
+	seedBoardsAndSprints(t,
+		[]api.Board{{ID: 23, Name: "MON"}},
+		map[int][]api.Sprint{23: {{ID: 1, Name: "Other"}}},
+	)
+
+	var capturedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := newAgileClient(t, server)
+
+	rootCmd, opts := root.NewCmd()
+	opts.SetAPIClient(client)
+	opts.Stdout = &bytes.Buffer{}
+	opts.Stderr = &bytes.Buffer{}
+	opts.NoColor = true
+	Register(rootCmd, opts)
+
+	rootCmd.SetArgs([]string{"sprints", "add", "999", "PROJ-1"})
+	err := rootCmd.Execute()
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, capturedPath, "/rest/agile/1.0/sprint/999/issue")
 }
 
 func TestRunAdd_AgentOutput(t *testing.T) {
@@ -447,7 +646,7 @@ func TestRunAdd_AgentOutput(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}, NoColor: true}
 	opts.SetAPIClient(client)
 
-	err = runAdd(context.Background(), opts, 456, []string{"MON-123"})
+	err = runAdd(context.Background(), opts, client, 456, []string{"MON-123"})
 	testutil.RequireNoError(t, err)
 
 	// Agent policy: plain text, no checkmark

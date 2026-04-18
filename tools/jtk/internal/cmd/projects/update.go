@@ -13,6 +13,7 @@ import (
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cache"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/resolve"
 )
 
 func newUpdateCmd(opts *root.Options) *cobra.Command {
@@ -30,8 +31,9 @@ func newUpdateCmd(opts *root.Options) *cobra.Command {
   # Update description
   jtk projects update MYPROJ --description "Updated description"
 
-  # Change project lead
-  jtk projects update MYPROJ --lead <account-id>`,
+  # Change project lead (accepts accountId, email, display name, or "me")
+  jtk projects update MYPROJ --lead "Aaron Wong"
+  jtk projects update MYPROJ --lead aaron@example.com`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUpdate(cmd.Context(), opts, args[0], name, description, lead)
@@ -40,7 +42,7 @@ func newUpdateCmd(opts *root.Options) *cobra.Command {
 
 	cmd.Flags().StringVarP(&name, "name", "n", "", "New project name")
 	cmd.Flags().StringVarP(&description, "description", "d", "", "New project description")
-	cmd.Flags().StringVarP(&lead, "lead", "l", "", "New lead account ID")
+	cmd.Flags().StringVarP(&lead, "lead", "l", "", "New lead: accountId, email, display name, or \"me\"")
 
 	return cmd
 }
@@ -54,9 +56,16 @@ func runUpdate(ctx context.Context, opts *root.Options, keyOrID, name, descripti
 	}
 
 	req := &api.UpdateProjectRequest{
-		Name:          name,
-		Description:   description,
-		LeadAccountID: lead,
+		Name:        name,
+		Description: description,
+	}
+
+	if lead != "" {
+		resolvedLead, err := resolve.New(client).User(ctx, lead)
+		if err != nil {
+			return err
+		}
+		req.LeadAccountID = resolvedLead.AccountID
 	}
 
 	project, err := client.UpdateProject(ctx, keyOrID, req)

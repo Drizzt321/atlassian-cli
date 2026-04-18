@@ -2,6 +2,7 @@
 package links
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/resolve"
 )
 
 // Register registers the links commands
@@ -89,27 +91,31 @@ func newCreateCmd(opts *root.Options) *cobra.Command {
 
 The first issue is the outward issue and the second is the inward issue.
 For example, "jtk links create A B --type Blocks" means "A blocks B".`,
-		Example: `  # A blocks B
-  jtk links create PROJ-123 PROJ-456 --type Blocks
+		Example: `  # --type accepts the canonical name, the outward verb, or the inward verb.
+  # With an inward verb the issue-key ordering is interpreted from the user's
+  # perspective: ` + "`" + `A is blocked by B` + "`" + ` creates B → blocks → A.
+  jtk links create PROJ-123 PROJ-456 --type Blocker
+  jtk links create PROJ-123 PROJ-456 --type blocks            # A blocks B
+  jtk links create PROJ-123 PROJ-456 --type "is blocked by"   # A is blocked by B
 
   # A relates to B
   jtk links create PROJ-123 PROJ-456 --type Relates
 
   # A is cloned by B
-  jtk links create PROJ-123 PROJ-456 --type Cloners`,
+  jtk links create PROJ-123 PROJ-456 --type "is cloned by"`,
 		Args: cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			return runCreate(opts, args[0], args[1], linkType)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCreate(cmd.Context(), opts, args[0], args[1], linkType)
 		},
 	}
 
-	cmd.Flags().StringVarP(&linkType, "type", "t", "", "Link type name (required)")
+	cmd.Flags().StringVarP(&linkType, "type", "t", "", "Link type: canonical name, outward verb, or inward verb (required)")
 	_ = cmd.MarkFlagRequired("type")
 
 	return cmd
 }
 
-func runCreate(opts *root.Options, outwardKey, inwardKey, linkType string) error {
+func runCreate(ctx context.Context, opts *root.Options, outwardKey, inwardKey, linkType string) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -117,28 +123,34 @@ func runCreate(opts *root.Options, outwardKey, inwardKey, linkType string) error
 		return err
 	}
 
-	// Validate link type exists
-	linkTypes, err := client.GetIssueLinkTypes()
+	resolvedLinkType, err := resolve.New(client).LinkType(ctx, linkType)
 	if err != nil {
-		return fmt.Errorf("failed to get link types: %w", err)
+		return err
 	}
 
-	var found bool
-	for _, lt := range linkTypes {
-		if strings.EqualFold(lt.Name, linkType) {
-			linkType = lt.Name // Use exact casing from server
-			found = true
-			break
-		}
+	// A cold-start synthetic has Name=input and empty Inward/Outward/ID.
+	// Without the verbs, we can't tell whether the user typed a canonical
+	// name or a directional verb — creating the link anyway would either
+	// silently reverse the direction (inward verb typed) or fail at the
+	// API (unknown type). Refuse up front with a concrete remediation.
+	if resolvedLinkType.ID == "" && resolvedLinkType.Inward == "" && resolvedLinkType.Outward == "" {
+		return fmt.Errorf(
+			"cannot resolve link type %q from cache — "+
+				"run `jtk refresh linktypes` to load verbs and IDs, "+
+				"or pass the canonical link type name once refreshed",
+			linkType)
 	}
 
-	if !found {
-		var available []string
-		for _, lt := range linkTypes {
-			available = append(available, lt.Name)
-		}
-		return fmt.Errorf("link type %q not found (available: %s)", linkType, strings.Join(available, ", "))
+	// If the user typed the inward verb ("is blocked by"), the positional
+	// arg order reads <inward> <outward> from their perspective. Swap so
+	// the resulting link matches the verb they chose. Input matching the
+	// canonical name or the outward verb maps to outward→inward as given.
+	if strings.EqualFold(linkType, resolvedLinkType.Inward) &&
+		!strings.EqualFold(linkType, resolvedLinkType.Outward) &&
+		!strings.EqualFold(linkType, resolvedLinkType.Name) {
+		outwardKey, inwardKey = inwardKey, outwardKey
 	}
+	linkType = resolvedLinkType.Name
 
 	if err := client.CreateIssueLink(outwardKey, inwardKey, linkType); err != nil {
 		return err
