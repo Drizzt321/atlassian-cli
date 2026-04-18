@@ -25,7 +25,7 @@ import (
 // candidates listed.
 func (r *Resolver) User(ctx context.Context, input string) (api.User, error) {
 	if strings.EqualFold(input, "me") {
-		u, err := r.client.GetCurrentUser(ctx)
+		u, err := r.client.GetCurrentUser(ctx, "")
 		if err != nil {
 			return api.User{}, fmt.Errorf("resolving current user: %w", err)
 		}
@@ -60,7 +60,7 @@ func (r *Resolver) User(ctx context.Context, input string) (api.User, error) {
 	if strings.Contains(input, "@") {
 		var nf *NotFoundError
 		if errors.As(err, &nf) {
-			if live, lerr := r.client.SearchUsers(ctx, input, 1); lerr == nil && len(live) == 1 {
+			if live, lerr := r.client.SearchUsers(ctx, input, 0, 1); lerr == nil && len(live) == 1 {
 				return live[0], nil
 			}
 		}

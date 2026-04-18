@@ -34,105 +34,138 @@ func newTestUserServer(_ *testing.T, statusCode int, user *api.User) *httptest.S
 	}))
 }
 
-func TestRun_Table(t *testing.T) {
-	t.Parallel()
-	user := &api.User{
-		AccountID:    "abc123",
-		DisplayName:  "John Doe",
-		EmailAddress: "john@example.com",
-		Active:       true,
-	}
+func newClient(t *testing.T, url string) *api.Client {
+	t.Helper()
+	client, err := api.New(api.ClientConfig{URL: url, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+	return client
+}
 
+func TestRun_DefaultOutputMatchesSpecOneLiner(t *testing.T) {
+	t.Parallel()
+	user := &api.User{AccountID: "abc123", DisplayName: "John Doe", EmailAddress: "john@example.com", Active: true}
 	server := newTestUserServer(t, http.StatusOK, user)
 	defer server.Close()
 
-	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	testutil.RequireNoError(t, err)
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", NoColor: true, Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(newClient(t, server.URL))
+
+	testutil.RequireNoError(t, run(context.Background(), opts))
+
+	want := "abc123 | John Doe | john@example.com\n"
+	if stdout.String() != want {
+		t.Errorf("me default output:\ngot:  %q\nwant: %q", stdout.String(), want)
+	}
+}
+
+func TestRun_EmptyEmailRendersDash(t *testing.T) {
+	t.Parallel()
+	user := &api.User{AccountID: "abc", DisplayName: "No Email", Active: true}
+	server := newTestUserServer(t, http.StatusOK, user)
+	defer server.Close()
 
 	var stdout bytes.Buffer
-	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	opts.SetAPIClient(client)
+	opts := &root.Options{Output: "table", NoColor: true, Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(newClient(t, server.URL))
 
-	err = run(context.Background(), opts)
-	testutil.RequireNoError(t, err)
+	testutil.RequireNoError(t, run(context.Background(), opts))
 
-	output := stdout.String()
-	testutil.Contains(t, output, "abc123")
-	testutil.Contains(t, output, "John Doe")
-	testutil.Contains(t, output, "john@example.com")
-	testutil.Contains(t, output, "yes")
+	want := "abc | No Email | -\n"
+	if stdout.String() != want {
+		t.Errorf("me empty-email output:\ngot:  %q\nwant: %q", stdout.String(), want)
+	}
+}
+
+func TestRun_Extended_EmitsThreeSpecRows(t *testing.T) {
+	t.Parallel()
+	user := &api.User{
+		AccountID:        "abc123",
+		DisplayName:      "Rian Stockbower",
+		EmailAddress:     "rian@monitapp.io",
+		Active:           true,
+		TimeZone:         "Etc/GMT",
+		Locale:           "en_US",
+		Groups:           &api.UserCountBlock{Size: 9},
+		ApplicationRoles: &api.UserCountBlock{Size: 1},
+	}
+	server := newTestUserServer(t, http.StatusOK, user)
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", NoColor: true, Extended: true, Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(newClient(t, server.URL))
+
+	testutil.RequireNoError(t, run(context.Background(), opts))
+
+	want := "abc123 | Rian Stockbower | rian@monitapp.io\n" +
+		"Timezone: Etc/GMT   Locale: en_US   Active: yes\n" +
+		"Groups: 9   Application Roles: 1\n"
+	if stdout.String() != want {
+		t.Errorf("me --extended output:\ngot:  %q\nwant: %q", stdout.String(), want)
+	}
+}
+
+func TestRun_Extended_DashesWhenOptionalFieldsMissing(t *testing.T) {
+	t.Parallel()
+	user := &api.User{AccountID: "abc", DisplayName: "Bob", Active: false}
+	server := newTestUserServer(t, http.StatusOK, user)
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", NoColor: true, Extended: true, Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(newClient(t, server.URL))
+
+	testutil.RequireNoError(t, run(context.Background(), opts))
+
+	want := "abc | Bob | -\n" +
+		"Timezone: -   Locale: -   Active: no\n" +
+		"Groups: -   Application Roles: -\n"
+	if stdout.String() != want {
+		t.Errorf("me --extended output with missing fields:\ngot:  %q\nwant: %q", stdout.String(), want)
+	}
 }
 
 func TestRun_IDOnly(t *testing.T) {
 	t.Parallel()
-	user := &api.User{
-		AccountID:    "abc123",
-		DisplayName:  "John Doe",
-		EmailAddress: "john@example.com",
-		Active:       true,
-	}
-
+	user := &api.User{AccountID: "abc123", DisplayName: "John Doe", Active: true}
 	server := newTestUserServer(t, http.StatusOK, user)
 	defer server.Close()
 
-	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	testutil.RequireNoError(t, err)
-
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", IDOnly: true, Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	opts.SetAPIClient(client)
+	opts.SetAPIClient(newClient(t, server.URL))
 
 	testutil.RequireNoError(t, run(context.Background(), opts))
-
 	testutil.Equal(t, stdout.String(), "abc123\n")
 }
 
 func TestRun_IDOnlyPrecedenceOverExtended(t *testing.T) {
 	t.Parallel()
-	user := &api.User{
-		AccountID:    "abc123",
-		DisplayName:  "John Doe",
-		EmailAddress: "john@example.com",
-		Active:       true,
-	}
-
+	user := &api.User{AccountID: "abc123", DisplayName: "John Doe", Active: true}
 	server := newTestUserServer(t, http.StatusOK, user)
 	defer server.Close()
 
-	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	testutil.RequireNoError(t, err)
-
 	var stdout bytes.Buffer
+	// Even with --extended and --fulltext set, --id wins: only the accountID.
 	opts := &root.Options{Output: "table", IDOnly: true, Extended: true, FullText: true, Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	opts.SetAPIClient(client)
+	opts.SetAPIClient(newClient(t, server.URL))
 
 	testutil.RequireNoError(t, run(context.Background(), opts))
-
-	// --id wins: only the accountID, no presenter output.
 	testutil.Equal(t, stdout.String(), "abc123\n")
 }
 
-func TestRun_JSON(t *testing.T) {
+func TestRun_JSON_UsesArtifactLayer(t *testing.T) {
 	t.Parallel()
-	user := &api.User{
-		AccountID:    "abc123",
-		DisplayName:  "John Doe",
-		EmailAddress: "john@example.com",
-		Active:       true,
-	}
-
+	user := &api.User{AccountID: "abc123", DisplayName: "John Doe", EmailAddress: "john@example.com", Active: true}
 	server := newTestUserServer(t, http.StatusOK, user)
 	defer server.Close()
 
-	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	testutil.RequireNoError(t, err)
-
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "json", Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	opts.SetAPIClient(client)
+	opts.SetAPIClient(newClient(t, server.URL))
 
-	err = run(context.Background(), opts)
-	testutil.RequireNoError(t, err)
+	testutil.RequireNoError(t, run(context.Background(), opts))
 
 	output := stdout.String()
 	testutil.Contains(t, output, `"accountId"`)
@@ -141,80 +174,21 @@ func TestRun_JSON(t *testing.T) {
 	testutil.Contains(t, output, "John Doe")
 }
 
-func TestRun_WithEmail(t *testing.T) {
+func TestRun_Plain_EmitsBareAccountID(t *testing.T) {
 	t.Parallel()
-	user := &api.User{
-		AccountID:    "abc123",
-		DisplayName:  "John Doe",
-		EmailAddress: "john@example.com",
-		Active:       true,
-	}
-
+	// Legacy contract (pre-#237): `-o plain` emits just the accountID, no
+	// name, no email. --id is the preferred surface, but the plain format
+	// stays working for backwards compatibility with unmigrated scripts.
+	user := &api.User{AccountID: "abc123", DisplayName: "John Doe", EmailAddress: "john@example.com", Active: true}
 	server := newTestUserServer(t, http.StatusOK, user)
 	defer server.Close()
-
-	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	testutil.RequireNoError(t, err)
-
-	var stdout bytes.Buffer
-	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	opts.SetAPIClient(client)
-
-	err = run(context.Background(), opts)
-	testutil.RequireNoError(t, err)
-
-	testutil.Contains(t, stdout.String(), "john@example.com")
-}
-
-func TestRun_WithoutEmail(t *testing.T) {
-	t.Parallel()
-	user := &api.User{
-		AccountID:   "abc123",
-		DisplayName: "John Doe",
-		Active:      true,
-	}
-
-	server := newTestUserServer(t, http.StatusOK, user)
-	defer server.Close()
-
-	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	testutil.RequireNoError(t, err)
-
-	var stdout bytes.Buffer
-	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	opts.SetAPIClient(client)
-
-	err = run(context.Background(), opts)
-	testutil.RequireNoError(t, err)
-
-	output := stdout.String()
-	testutil.NotContains(t, output, "Email:")
-}
-
-func TestRun_Plain(t *testing.T) {
-	t.Parallel()
-	user := &api.User{
-		AccountID:   "abc123",
-		DisplayName: "John Doe",
-		Active:      true,
-	}
-
-	server := newTestUserServer(t, http.StatusOK, user)
-	defer server.Close()
-
-	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	testutil.RequireNoError(t, err)
 
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "plain", Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	opts.SetAPIClient(client)
+	opts.SetAPIClient(newClient(t, server.URL))
 
-	err = run(context.Background(), opts)
-	testutil.RequireNoError(t, err)
-
-	output := stdout.String()
-	testutil.Contains(t, output, "abc123")
-	testutil.NotContains(t, output, "John Doe")
+	testutil.RequireNoError(t, run(context.Background(), opts))
+	testutil.Equal(t, stdout.String(), "abc123\n")
 }
 
 func TestRun_AuthFailure(t *testing.T) {
@@ -225,42 +199,45 @@ func TestRun_AuthFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	testutil.RequireNoError(t, err)
-
 	var stdout bytes.Buffer
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	opts.SetAPIClient(client)
+	opts.SetAPIClient(newClient(t, server.URL))
 
-	err = run(context.Background(), opts)
+	err := run(context.Background(), opts)
 	testutil.NotNil(t, err)
 }
 
-func TestRun_UnpaddedKeyValueOutput(t *testing.T) {
+func TestRun_ExpandParamGatedOnExtended(t *testing.T) {
 	t.Parallel()
-	// Verifies the migration from manual padding to RenderKeyValues produces unpadded output
-	user := &api.User{
-		AccountID:    "abc123",
-		DisplayName:  "Alice",
-		EmailAddress: "alice@example.com",
-		Active:       true,
+	// Verifies the /myself request carries expand=groups,applicationRoles
+	// ONLY when --extended is set. Default-mode callers don't render those
+	// counts, so the wasted payload is skipped.
+	cases := []struct {
+		name     string
+		extended bool
+		wantExp  string
+	}{
+		{"default omits expand", false, ""},
+		{"extended requests groups+roles", true, "groups,applicationRoles"},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var captured string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				captured = r.URL.Query().Get("expand")
+				_ = json.NewEncoder(w).Encode(&api.User{AccountID: "a", DisplayName: "x", Active: true})
+			}))
+			defer server.Close()
 
-	server := newTestUserServer(t, http.StatusOK, user)
-	defer server.Close()
+			var stdout bytes.Buffer
+			opts := &root.Options{Output: "table", Extended: tc.extended, Stdout: &stdout, Stderr: &bytes.Buffer{}}
+			opts.SetAPIClient(newClient(t, server.URL))
 
-	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
-	testutil.RequireNoError(t, err)
-
-	var stdout bytes.Buffer
-	opts := &root.Options{Output: "table", NoColor: true, Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	opts.SetAPIClient(client)
-
-	err = run(context.Background(), opts)
-	testutil.RequireNoError(t, err)
-
-	want := "Account ID: abc123\nDisplay Name: Alice\nEmail: alice@example.com\nActive: yes\n"
-	if stdout.String() != want {
-		t.Errorf("me output:\ngot:\n%s\nwant:\n%s", stdout.String(), want)
+			testutil.RequireNoError(t, run(context.Background(), opts))
+			if captured != tc.wantExp {
+				t.Errorf("expand = %q, want %q", captured, tc.wantExp)
+			}
+		})
 	}
 }

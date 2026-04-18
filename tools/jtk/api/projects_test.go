@@ -73,7 +73,7 @@ func TestSearchProjects(t *testing.T) {
 			testutil.RequireNoError(t, err)
 			client.BaseURL = server.URL + "/rest/api/3"
 
-			result, err := client.SearchProjects(context.Background(), tt.query, 0, 50)
+			result, err := client.SearchProjects(context.Background(), tt.query, 0, 50, "")
 			if tt.wantErr {
 				testutil.Error(t, err)
 				return
@@ -130,7 +130,7 @@ func TestGetProject(t *testing.T) {
 					APIToken: "test-token",
 				})
 				testutil.RequireNoError(t, err)
-				_, err = client.GetProject(context.Background(), "")
+				_, err = client.GetProject(context.Background(), "", "")
 				testutil.Error(t, err)
 				return
 			}
@@ -150,7 +150,7 @@ func TestGetProject(t *testing.T) {
 			testutil.RequireNoError(t, err)
 			client.BaseURL = server.URL + "/rest/api/3"
 
-			project, err := client.GetProject(context.Background(), tt.keyOrID)
+			project, err := client.GetProject(context.Background(), tt.keyOrID, "")
 			if tt.wantErr {
 				testutil.Error(t, err)
 				return
@@ -159,6 +159,85 @@ func TestGetProject(t *testing.T) {
 			testutil.RequireNoError(t, err)
 			testutil.Equal(t, project.Key, tt.wantKey)
 			testutil.Equal(t, project.Lead.DisplayName, "John Smith")
+		})
+	}
+}
+
+func TestSearchProjects_PassesExpandThroughUnmodified(t *testing.T) {
+	t.Parallel()
+	// The API layer does not know about `--extended`; it takes an expand
+	// string verbatim. Two branches: empty means no expand param on the
+	// URL; non-empty shows up exactly as passed. Callers map their
+	// rendering intent to a concrete expand.
+	cases := []struct {
+		name             string
+		expand           string
+		wantParam        string
+		wantParamPresent bool
+	}{
+		{"empty omits param", "", "", false},
+		{"lead only", "lead", "lead", true},
+		{"full set", ProjectListExpand, ProjectListExpand, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var captured string
+			var present bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				captured = r.URL.Query().Get("expand")
+				_, present = r.URL.Query()["expand"]
+				_, _ = w.Write([]byte(`{"values":[],"isLast":true}`))
+			}))
+			defer server.Close()
+
+			client, err := New(ClientConfig{URL: "https://test.atlassian.net", Email: "t@t.com", APIToken: "x"})
+			testutil.RequireNoError(t, err)
+			client.BaseURL = server.URL + "/rest/api/3"
+
+			_, err = client.SearchProjects(context.Background(), "", 0, 50, tc.expand)
+			testutil.RequireNoError(t, err)
+			testutil.Equal(t, captured, tc.wantParam)
+			testutil.Equal(t, present, tc.wantParamPresent)
+		})
+	}
+}
+
+func TestGetProject_PassesExpandThroughUnmodified(t *testing.T) {
+	t.Parallel()
+	// GetProject takes an expand string verbatim: empty string sends no
+	// expand param; non-empty shows up exactly. Callers (e.g. `projects
+	// get` default, `projects get --id`, `issues types`) own the decision.
+	cases := []struct {
+		name             string
+		expand           string
+		wantParam        string
+		wantParamPresent bool
+	}{
+		{"empty omits param (id path)", "", "", false},
+		{"narrow single key (issues types)", "issueTypes", "issueTypes", true},
+		{"full get expansion", ProjectGetExpand, ProjectGetExpand, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var captured string
+			var present bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				captured = r.URL.Query().Get("expand")
+				_, present = r.URL.Query()["expand"]
+				_, _ = w.Write([]byte(`{"id":"10001","key":"TST","name":"Test"}`))
+			}))
+			defer server.Close()
+
+			client, err := New(ClientConfig{URL: "https://test.atlassian.net", Email: "t@t.com", APIToken: "x"})
+			testutil.RequireNoError(t, err)
+			client.BaseURL = server.URL + "/rest/api/3"
+
+			_, err = client.GetProject(context.Background(), "TST", tc.expand)
+			testutil.RequireNoError(t, err)
+			testutil.Equal(t, captured, tc.wantParam)
+			testutil.Equal(t, present, tc.wantParamPresent)
 		})
 	}
 }

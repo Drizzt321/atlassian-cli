@@ -18,7 +18,20 @@ type ProjectDetail struct {
 	Lead           *User       `json:"lead,omitempty"`
 	IssueTypes     []IssueType `json:"issueTypes,omitempty"`
 	Components     []Component `json:"components,omitempty"`
+	Versions       []Version   `json:"versions,omitempty"`
+	Style          string      `json:"style,omitempty"`
+	Simplified     *bool       `json:"simplified,omitempty"`
+	IsPrivate      *bool       `json:"isPrivate,omitempty"`
 	URL            string      `json:"url,omitempty"`
+}
+
+// Version represents a Jira project version. Only the fields needed for the
+// `projects get` count-column rendering are decoded here; additional fields
+// (releaseDate, released, archived, etc.) can be added when a version-focused
+// command lands.
+type Version struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // ProjectSearchResponse represents the paginated response from project search
@@ -71,9 +84,24 @@ func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
 	return projects, nil
 }
 
-// SearchProjects searches for projects with pagination
-func (c *Client) SearchProjects(ctx context.Context, query string, startAt, maxResults int) (*ProjectSearchResponse, error) {
+// ProjectListExpand is the expand string that populates the extended-mode
+// `jtk projects list --extended` columns (STYLE / ISSUE_TYPES / COMPONENTS).
+// Style/simplified/isPrivate are top-level on /project/search and don't need
+// expand. Kept as a package constant so commands can reuse it without
+// hardcoding the wire format.
+const ProjectListExpand = "description,lead,issueTypes,url,projectKeys"
+
+// SearchProjects searches for projects with pagination. expand is passed
+// through to the ?expand= query param untouched; callers decide what
+// expansion they need based on the columns they render (API layer stays
+// ignorant of presentation mode). Use ProjectListExpand for extended-mode
+// list, or a narrower string like "lead" for default-mode. Empty expand
+// sends no expand param.
+func (c *Client) SearchProjects(ctx context.Context, query string, startAt, maxResults int, expand string) (*ProjectSearchResponse, error) {
 	params := map[string]string{}
+	if expand != "" {
+		params["expand"] = expand
+	}
 
 	if query != "" {
 		params["query"] = query
@@ -99,13 +127,32 @@ func (c *Client) SearchProjects(ctx context.Context, query string, startAt, maxR
 	return &result, nil
 }
 
-// GetProject retrieves a project by key or ID
-func (c *Client) GetProject(ctx context.Context, projectKeyOrID string) (*ProjectDetail, error) {
+// ProjectGetExpand is the expand string that populates `jtk projects get`
+// default + extended output (component list, version count, style /
+// simplified / isPrivate flags, description, lead, URL). Callers that only
+// need a subset (e.g. `--id` wants nothing at all) should pass their own
+// narrower string instead of this default.
+const ProjectGetExpand = "description,lead,issueTypes,url,projectKeys,versions"
+
+// GetProject retrieves a project by key or ID. expand is passed straight to
+// ?expand= — callers choose their own expansion (API stays ignorant of
+// presentation mode). Pass ProjectGetExpand for full `projects get` output,
+// a narrower string for specific fields (e.g. "issueTypes" for
+// `issues types`), or "" to skip expansion entirely (e.g. `--id` which only
+// needs the canonical key).
+func (c *Client) GetProject(ctx context.Context, projectKeyOrID, expand string) (*ProjectDetail, error) {
 	if projectKeyOrID == "" {
 		return nil, ErrProjectKeyRequired
 	}
 
-	urlStr := fmt.Sprintf("%s/project/%s", c.BaseURL, url.PathEscape(projectKeyOrID))
+	params := map[string]string{}
+	if expand != "" {
+		params["expand"] = expand
+	}
+	urlStr := buildURL(
+		fmt.Sprintf("%s/project/%s", c.BaseURL, url.PathEscape(projectKeyOrID)),
+		params,
+	)
 	body, err := c.Get(ctx, urlStr)
 	if err != nil {
 		return nil, fmt.Errorf("fetching project: %w", err)

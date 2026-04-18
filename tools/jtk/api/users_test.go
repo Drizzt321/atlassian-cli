@@ -61,7 +61,7 @@ func TestGetUser(t *testing.T) {
 			testutil.RequireNoError(t, err)
 			client.BaseURL = server.URL + "/rest/api/3"
 
-			user, err := client.GetUser(context.Background(), tt.accountID)
+			user, err := client.GetUser(context.Background(), tt.accountID, "")
 			if tt.wantErr {
 				testutil.Error(t, err)
 				return
@@ -95,7 +95,7 @@ func TestGetCurrentUser(t *testing.T) {
 	testutil.RequireNoError(t, err)
 	client.BaseURL = server.URL + "/rest/api/3"
 
-	user, err := client.GetCurrentUser(context.Background())
+	user, err := client.GetCurrentUser(context.Background(), "")
 	testutil.RequireNoError(t, err)
 	testutil.Equal(t, user.DisplayName, "Current User")
 	testutil.Equal(t, user.AccountID, "5b10ac8d82e05b22cc7d4ef5")
@@ -160,9 +160,33 @@ func TestSearchUsers(t *testing.T) {
 	testutil.RequireNoError(t, err)
 	client.BaseURL = server.URL + "/rest/api/3"
 
-	users, err := client.SearchUsers(context.Background(), "john", 0)
+	users, err := client.SearchUsers(context.Background(), "john", 0, 0)
 	testutil.RequireNoError(t, err)
 	testutil.Len(t, users, 2)
 	testutil.Equal(t, users[0].DisplayName, "John Smith")
 	testutil.Equal(t, users[1].DisplayName, "John Doe")
+}
+
+func TestSearchUsers_SendsStartAtWhenSet(t *testing.T) {
+	t.Parallel()
+	// The new startAt int parameter gates the "startAt" query param behind a
+	// `> 0` check so a zero offset doesn't pollute the URL. This test asserts
+	// the positive branch directly at the API layer (TestSearchUsers covers
+	// the zero branch implicitly via its omitted startAt query param).
+	var capturedStartAt, capturedMaxResults string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedStartAt = r.URL.Query().Get("startAt")
+		capturedMaxResults = r.URL.Query().Get("maxResults")
+		_ = json.NewEncoder(w).Encode([]User{})
+	}))
+	defer server.Close()
+
+	client, err := New(ClientConfig{URL: "https://test.atlassian.net", Email: "test@example.com", APIToken: "t"})
+	testutil.RequireNoError(t, err)
+	client.BaseURL = server.URL + "/rest/api/3"
+
+	_, err = client.SearchUsers(context.Background(), "q", 25, 10)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, capturedStartAt, "25")
+	testutil.Equal(t, capturedMaxResults, "10")
 }

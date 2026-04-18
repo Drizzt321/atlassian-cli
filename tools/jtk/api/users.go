@@ -6,9 +6,21 @@ import (
 	"fmt"
 )
 
-// GetCurrentUser returns the currently authenticated user
-func (c *Client) GetCurrentUser(ctx context.Context) (*User, error) {
-	urlStr := fmt.Sprintf("%s/myself", c.BaseURL)
+// UserExtendedExpand is the canonical expand string that populates
+// `--extended` user output (Groups / Application Roles size blocks).
+// Callers pass this to GetCurrentUser / GetUser when they intend to render
+// extended fields; pass "" otherwise to avoid the wasted payload.
+const UserExtendedExpand = "groups,applicationRoles"
+
+// GetCurrentUser returns the currently authenticated user. expand is passed
+// verbatim to ?expand= — callers decide which expansions they need. Use
+// UserExtendedExpand for --extended; "" for default / --id callers.
+func (c *Client) GetCurrentUser(ctx context.Context, expand string) (*User, error) {
+	params := map[string]string{}
+	if expand != "" {
+		params["expand"] = expand
+	}
+	urlStr := buildURL(fmt.Sprintf("%s/myself", c.BaseURL), params)
 	body, err := c.Get(ctx, urlStr)
 	if err != nil {
 		return nil, fmt.Errorf("getting current user: %w", err)
@@ -22,10 +34,16 @@ func (c *Client) GetCurrentUser(ctx context.Context) (*User, error) {
 	return &user, nil
 }
 
-// GetUser returns a user by their account ID
-func (c *Client) GetUser(ctx context.Context, accountID string) (*User, error) {
-	params := map[string]string{
-		"accountId": accountID,
+// GetUser returns a user by their account ID. expand is passed verbatim to
+// ?expand= — callers supply their intent. Use UserExtendedExpand for
+// --extended output; "" for default/--id where the Size blocks would be
+// discarded. timeZone / locale on the returned user may be empty on
+// instances that redact other-user personal information — presenters render
+// them as `-` in that case.
+func (c *Client) GetUser(ctx context.Context, accountID, expand string) (*User, error) {
+	params := map[string]string{"accountId": accountID}
+	if expand != "" {
+		params["expand"] = expand
 	}
 	urlStr := buildURL(fmt.Sprintf("%s/user", c.BaseURL), params)
 	body, err := c.Get(ctx, urlStr)
@@ -68,10 +86,16 @@ func (c *Client) ListUsersPage(ctx context.Context, startAt, maxResults int) ([]
 	return users, nil
 }
 
-// SearchUsers searches for users by query string
-func (c *Client) SearchUsers(ctx context.Context, query string, maxResults int) ([]User, error) {
+// SearchUsers searches for users by query string.
+// startAt is the 0-based offset into the result set; callers passing 0 get the
+// first page. /user/search does not return isLast, so callers infer terminal
+// state from `len(users) < maxResults`.
+func (c *Client) SearchUsers(ctx context.Context, query string, startAt, maxResults int) ([]User, error) {
 	params := map[string]string{
 		"query": query,
+	}
+	if startAt > 0 {
+		params["startAt"] = fmt.Sprintf("%d", startAt)
 	}
 	if maxResults > 0 {
 		params["maxResults"] = fmt.Sprintf("%d", maxResults)
