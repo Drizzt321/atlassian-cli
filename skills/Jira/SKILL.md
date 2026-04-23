@@ -1,6 +1,6 @@
 ---
 name: Jira
-description: Jira issue tracking and project management via jtk CLI — search, create (single or bulk), update, assign, transition issues, manage sprints and boards, comments, attachments, cross-issue links, parent/sub-task hierarchies. USE WHEN jira, issues, tickets, sprint, standup, backlog, board, jira board, JQL, create issue, create tickets, bulk create, multiple tickets, sub-tasks, parent with children, epic with stories, decompose spec into tickets, turn PRD into tickets, link issues, my tickets, assign issue, move ticket, transition issue, move to done, add comment, attach to issue, jira attachment, jira status, what am I working on.
+description: Jira issue tracking and project management — search, create (single or bulk), update, assign, transition issues, manage sprints and boards, comments, attachments, cross-issue links, parent/sub-task hierarchies. USE WHEN jira, issues, tickets, sprint, standup, backlog, board, jira board, JQL, create issue, create tickets, bulk create, multiple tickets, sub-tasks, parent with children, epic with stories, decompose spec into tickets, turn PRD into tickets, link issues, my tickets, assign issue, move ticket, transition issue, move to done, add comment, attach to issue, jira attachment, jira status, what am I working on.
 ---
 
 # Jira
