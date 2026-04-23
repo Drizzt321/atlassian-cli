@@ -146,6 +146,108 @@ func TestRunList_Empty(t *testing.T) {
 	testutil.Contains(t, stdout.String(), "No attachments found")
 }
 
+func attachmentServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		var response struct {
+			Fields struct {
+				Attachment []api.Attachment `json:"attachment"`
+			} `json:"fields"`
+		}
+		response.Fields.Attachment = []api.Attachment{
+			{
+				ID:       "10234",
+				Filename: "test.md",
+				Size:     4301,
+				MimeType: "text/markdown",
+				Created:  "2026-04-16",
+				Author:   api.User{DisplayName: "Alice"},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+}
+
+func TestRunList_Extended(t *testing.T) {
+	t.Parallel()
+	server := attachmentServer(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, Extended: true}
+	opts.SetAPIClient(client)
+
+	err = runList(context.Background(), opts, "TEST-1", "")
+	testutil.RequireNoError(t, err)
+
+	out := stdout.String()
+	testutil.Contains(t, out, "BYTES")
+	testutil.Contains(t, out, "MIME_TYPE")
+	testutil.Contains(t, out, "4301")
+	testutil.Contains(t, out, "text/markdown")
+}
+
+func TestRunList_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := attachmentServer(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runList(context.Background(), opts, "TEST-1", "")
+	testutil.RequireNoError(t, err)
+
+	testutil.Equal(t, stdout.String(), "10234\n")
+}
+
+func TestRunList_FieldsProjection(t *testing.T) {
+	t.Parallel()
+	server := attachmentServer(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runList(context.Background(), opts, "TEST-1", "FILENAME,SIZE")
+	testutil.RequireNoError(t, err)
+
+	out := stdout.String()
+	testutil.Contains(t, out, "ID")
+	testutil.Contains(t, out, "FILENAME")
+	testutil.Contains(t, out, "SIZE")
+	testutil.NotContains(t, out, "AUTHOR")
+}
+
+func TestRunList_FieldsWithJSON_Error(t *testing.T) {
+	t.Parallel()
+	server := attachmentServer(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	opts := &root.Options{Output: "json", Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runList(context.Background(), opts, "TEST-1", "FILENAME")
+	if err == nil {
+		t.Fatal("expected error for --fields + --output json")
+	}
+	testutil.Contains(t, err.Error(), "not supported")
+}
+
 // --- add tests ---
 
 func TestNewAddCmd(t *testing.T) {
