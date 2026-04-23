@@ -1,6 +1,6 @@
 # jtk CLI Reference
 
-> **Covers:** jtk v1.0.69
+> **Covers:** jtk v1.0.75
 
 Reference for the `jtk` command line tool from [open-cli-collective/atlassian-cli](https://github.com/open-cli-collective/atlassian-cli).
 
@@ -68,7 +68,7 @@ jtk [resource] [action] [KEY/ID] [flags]
 | `jtk issues move PROJ-1 [PROJ-2 ...] --to-project NEWPROJ` | Move one or more issues to another project (Jira Cloud only). By default synchronous — waits for completion. Max 1000 issues per request. See move flags below |
 | `jtk issues move-status TASK_ID` | Check status of an async move operation (used with `--no-wait`) |
 | `jtk issues delete PROJ-123` | Permanently delete an issue. Interactive `y/N` prompt by default (prompt goes to stderr, reads from stdin); pass `--force` to skip. Destructive and irreversible |
-| `jtk issues types --project KEY` | List valid issue types for a project (columns: `ID`, `NAME`, `SUBTASK`; use values from `NAME` as `--type` on create). Supports `--id`, `--fields`, `--extended` (adds `DESCRIPTION_KEY`) |
+| `jtk issues types --project KEY` | List valid issue types for a project (columns: `ID`, `NAME`, `SUBTASK`; use values from `NAME` as `--type` on create). Supports `--id`, `--extended` (adds `DESCRIPTION_KEY`) |
 | `jtk issues fields [PROJ-123]` | List available fields (all fields, or editable fields for a specific issue) |
 | `jtk issues field-options FIELD_NAME_OR_ID [--issue PROJ-123]` | List allowed values for a field (e.g. priority, custom selects) |
 
@@ -134,14 +134,14 @@ Status changes happen via `jtk transitions do`, **not** `jtk issues update`.
 | Command | Description |
 |---------|-------------|
 | `jtk transitions list PROJ-123` | List available transitions for issue |
-| `jtk transitions list PROJ-123 --fields` | Show required fields for each transition |
+| `jtk transitions list PROJ-123 --extended` | Show required fields for each transition |
 | `jtk transitions do PROJ-123 "Transition Name"` | Apply transition by name |
 | `jtk transitions do PROJ-123 21` | Apply transition by numeric ID |
-| `jtk transitions do PROJ-123 "Done" --field NAME=VALUE` | Apply with required fields (only when `transitions list --fields` shows a required field) |
+| `jtk transitions do PROJ-123 "Done" --field NAME=VALUE` | Apply with required fields (only when `transitions list --extended` shows a required field) |
 
 Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-dependent — always run `transitions list` first).
 
-> **Do not speculatively pass `--field resolution=Done` (or any other field) unless `jtk transitions list --fields PROJ-123` explicitly shows it is required for the transition you're applying.** Many Jira workflows set resolution via post-function or hide it from the transition screen — speculatively providing `--field resolution=Done` will fail with "Field 'resolution' cannot be set. It is not on the appropriate screen, or unknown." In that case, re-run the transition without the `--field` flag.
+> **Do not speculatively pass `--field resolution=Done` (or any other field) unless `jtk transitions list PROJ-123 --extended` explicitly shows it is required for the transition you're applying.** Many Jira workflows set resolution via post-function or hide it from the transition screen — speculatively providing `--field resolution=Done` will fail with "Field 'resolution' cannot be set. It is not on the appropriate screen, or unknown." In that case, re-run the transition without the `--field` flag.
 
 ## Projects
 
@@ -158,7 +158,7 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 |---------|-------------|
 | `jtk sprints list --board ID_OR_NAME` | List sprints for board (columns: `ID`, `STATE`, `START`, `END`, `NAME`). Supports `--extended` (adds sprint goals, timestamps), `--id`, `--fields`, `--next-page-token` |
 | `jtk sprints current --board ID_OR_NAME` | Get active sprint. Sprint Goal requires `--extended` (not shown by default). Supports `--id`, `--fields` |
-| `jtk sprints issues SPRINT_ID_OR_NAME` | List issues in sprint. Supports `--extended`, `--id`, `--fields` |
+| `jtk sprints issues SPRINT_ID_OR_NAME` | List issues in sprint. Supports `--extended`, `--id`, `--max`, `--next-page-token` |
 | `jtk sprints add SPRINT_ID_OR_NAME PROJ-1 PROJ-2 ...` | Add issues to sprint (issues are positional) |
 
 ## Boards
@@ -167,6 +167,15 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 |---------|-------------|
 | `jtk boards list` | List all boards (columns: `ID`, `TYPE`, `PROJECT`, `NAME`). Supports `--extended`, `--id`, `--fields`, `--next-page-token` |
 | `jtk boards get ID_OR_NAME` | Get board details. Supports `--extended` (shows board configuration: filter, columns), `--id`, `--fields` |
+
+## Links
+
+| Command | Description |
+|---------|-------------|
+| `jtk links list PROJ-123` | List links on an issue. Supports `--fields`, `--extended`, `--id` |
+| `jtk links create PROJ-123 PROJ-456 --type NAME` | Create a link between two issues. First issue is outward, second is inward (e.g., "A blocks B"). `--type` accepts canonical name (`Blocks`), outward verb (`blocks`), or inward verb (`is blocked by`) — inward verbs auto-swap the key ordering |
+| `jtk links delete LINK_ID` | Delete an issue link by numeric ID (use `jtk links list` to find IDs) |
+| `jtk links types` | List available link types for the instance (columns: `ID`, `NAME`, `OUTWARD`, `INWARD`). Supports `--fields`, `--id` |
 
 ## Comments
 
@@ -180,7 +189,7 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 
 | Command | Description |
 |---------|-------------|
-| `jtk attachments list PROJ-123` | List attachments on issue |
+| `jtk attachments list PROJ-123` | List attachments on issue. Supports `--fields` |
 | `jtk attachments add PROJ-123 --file PATH` | Upload attachment (`--file` / `-f` repeatable for multiple) |
 | `jtk attachments get ATTACHMENT_ID` | Download attachment (alias: `download`) |
 | `jtk attachments get ATTACHMENT_ID --output ./dir/` | Download to specific directory |
@@ -223,7 +232,7 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 
 ## Scope of This Reference
 
-This reference covers `jtk`'s daily-use operator surface — issues, transitions, sprints, boards, comments, attachments, projects, users. It intentionally does **not** cover administrative surfaces, which are out of scope for the workflows in this skill:
+This reference covers `jtk`'s daily-use operator surface — issues, transitions, links, sprints, boards, comments, attachments, projects, users. It intentionally does **not** cover administrative surfaces, which are out of scope for the workflows in this skill:
 
 - `jtk fields` — custom field management (create, delete, restore, contexts, options)
 - `jtk dashboards` — dashboard and gadget management
