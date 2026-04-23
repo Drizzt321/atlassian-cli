@@ -38,9 +38,9 @@ func TestCommentListSpec_MatchesPresentListHeaders(t *testing.T) {
 		name  string
 		model *present.OutputModel
 	}{
-		{"PresentList", CommentPresenter{}.PresentList(comments)},
-		{"PresentListWithPagination_NoMore", CommentPresenter{}.PresentListWithPagination(comments, false)},
-		{"PresentListWithPagination_HasMore", CommentPresenter{}.PresentListWithPagination(comments, true)},
+		{"PresentList", CommentPresenter{}.PresentList(comments, false)},
+		{"PresentListWithPagination_NoMore", CommentPresenter{}.PresentListWithPagination(comments, false, false)},
+		{"PresentListWithPagination_HasMore", CommentPresenter{}.PresentListWithPagination(comments, false, true)},
 	}
 
 	for _, tc := range cases {
@@ -55,10 +55,11 @@ func TestCommentListSpec_MatchesPresentListHeaders(t *testing.T) {
 			if table == nil {
 				t.Fatalf("no TableSection in %s output", tc.name)
 			}
-			if len(table.Headers) != len(CommentListSpec) {
-				t.Fatalf("header count mismatch: spec has %d, table has %d", len(CommentListSpec), len(table.Headers))
+			defaultSpec := CommentListSpec.ForMode(false)
+			if len(table.Headers) != len(defaultSpec) {
+				t.Fatalf("header count mismatch: spec has %d, table has %d", len(defaultSpec), len(table.Headers))
 			}
-			for i, spec := range CommentListSpec {
+			for i, spec := range defaultSpec {
 				if table.Headers[i] != spec.Header {
 					t.Errorf("index %d: spec Header=%q, table header=%q", i, spec.Header, table.Headers[i])
 				}
@@ -83,9 +84,9 @@ func TestCommentDetailSpec_MatchesPresentDetailLabels(t *testing.T) {
 		name  string
 		model *present.OutputModel
 	}{
-		{"PresentListFull", CommentPresenter{}.PresentListFull(comments)},
-		{"PresentListFullWithPagination_NoMore", CommentPresenter{}.PresentListFullWithPagination(comments, false)},
-		{"PresentListFullWithPagination_HasMore", CommentPresenter{}.PresentListFullWithPagination(comments, true)},
+		{"PresentListFull", CommentPresenter{}.PresentListFull(comments, false)},
+		{"PresentListFullWithPagination_NoMore", CommentPresenter{}.PresentListFullWithPagination(comments, false, false)},
+		{"PresentListFullWithPagination_HasMore", CommentPresenter{}.PresentListFullWithPagination(comments, false, true)},
 	}
 
 	for _, tc := range cases {
@@ -101,20 +102,20 @@ func TestCommentDetailSpec_MatchesPresentDetailLabels(t *testing.T) {
 				t.Fatalf("no DetailSection in %s output", tc.name)
 			}
 
-			// Spec → rendered: every spec entry has a rendered field.
+			activeSpec := CommentDetailSpec.ForMode(false)
+
 			renderedLabels := make(map[string]bool, len(detail.Fields))
 			for _, f := range detail.Fields {
 				renderedLabels[f.Label] = true
 			}
-			for _, spec := range CommentDetailSpec {
+			for _, spec := range activeSpec {
 				if !renderedLabels[spec.Header] {
 					t.Errorf("spec Header %q not emitted by %s", spec.Header, tc.name)
 				}
 			}
 
-			// Rendered → spec: every rendered field has a spec entry.
-			specLabels := make(map[string]bool, len(CommentDetailSpec))
-			for _, spec := range CommentDetailSpec {
+			specLabels := make(map[string]bool, len(activeSpec))
+			for _, spec := range activeSpec {
 				specLabels[spec.Header] = true
 			}
 			for _, f := range detail.Fields {
@@ -123,9 +124,8 @@ func TestCommentDetailSpec_MatchesPresentDetailLabels(t *testing.T) {
 				}
 			}
 
-			// Order: spec order must match presenter Field order.
-			specOrder := make([]string, 0, len(CommentDetailSpec))
-			for _, spec := range CommentDetailSpec {
+			specOrder := make([]string, 0, len(activeSpec))
+			for _, spec := range activeSpec {
 				specOrder = append(specOrder, spec.Header)
 			}
 			renderedOrder := make([]string, 0, len(detail.Fields))
@@ -139,5 +139,93 @@ func TestCommentDetailSpec_MatchesPresentDetailLabels(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCommentListSpec_ExtendedMatchesPresentListHeaders(t *testing.T) {
+	t.Parallel()
+	comments := singleComment()
+
+	extendedSpec := CommentListSpec.ForMode(true)
+	model := CommentPresenter{}.PresentList(comments, true)
+
+	var table *present.TableSection
+	for _, s := range model.Sections {
+		if ts, ok := s.(*present.TableSection); ok {
+			table = ts
+			break
+		}
+	}
+	if table == nil {
+		t.Fatal("no TableSection in extended PresentList output")
+	}
+	if len(table.Headers) != len(extendedSpec) {
+		t.Fatalf("header count mismatch: spec has %d, table has %d", len(extendedSpec), len(table.Headers))
+	}
+	for i, spec := range extendedSpec {
+		if table.Headers[i] != spec.Header {
+			t.Errorf("index %d: spec Header=%q, table header=%q", i, spec.Header, table.Headers[i])
+		}
+	}
+}
+
+func TestCommentDetailSpec_ExtendedMatchesPresentDetailLabels(t *testing.T) {
+	t.Parallel()
+	comments := singleComment()
+
+	extendedSpec := CommentDetailSpec.ForMode(true)
+	model := CommentPresenter{}.PresentListFull(comments, true)
+
+	var detail *present.DetailSection
+	for _, s := range model.Sections {
+		if ds, ok := s.(*present.DetailSection); ok {
+			detail = ds
+			break
+		}
+	}
+	if detail == nil {
+		t.Fatal("no DetailSection in extended PresentListFull output")
+	}
+
+	renderedLabels := make(map[string]bool, len(detail.Fields))
+	for _, f := range detail.Fields {
+		renderedLabels[f.Label] = true
+	}
+	for _, spec := range extendedSpec {
+		if !renderedLabels[spec.Header] {
+			t.Errorf("spec Header %q not emitted in extended mode", spec.Header)
+		}
+	}
+
+	specLabels := make(map[string]bool, len(extendedSpec))
+	for _, spec := range extendedSpec {
+		specLabels[spec.Header] = true
+	}
+	mismatch := false
+	for _, f := range detail.Fields {
+		if !specLabels[f.Label] {
+			t.Errorf("rendered field %q has no matching CommentDetailSpec entry in extended mode", f.Label)
+			mismatch = true
+		}
+	}
+	if mismatch {
+		t.Fatal("reverse-direction check failed; skipping order check")
+	}
+
+	specOrder := make([]string, 0, len(extendedSpec))
+	for _, spec := range extendedSpec {
+		specOrder = append(specOrder, spec.Header)
+	}
+	renderedOrder := make([]string, 0, len(detail.Fields))
+	for _, f := range detail.Fields {
+		renderedOrder = append(renderedOrder, f.Label)
+	}
+	if len(specOrder) != len(renderedOrder) {
+		t.Fatalf("extended spec has %d entries, rendered has %d", len(specOrder), len(renderedOrder))
+	}
+	for i := range specOrder {
+		if specOrder[i] != renderedOrder[i] {
+			t.Errorf("extended order mismatch at index %d: spec=%q rendered=%q", i, specOrder[i], renderedOrder[i])
+		}
 	}
 }

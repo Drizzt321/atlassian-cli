@@ -187,17 +187,21 @@ func TestRunUpdate_TypeChange(t *testing.T) {
 func TestRunUpdate_TypeAlreadyCorrect(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/rest/api/3/issue/PROJ-123" && r.Method == "GET" {
-			_ = json.NewEncoder(w).Encode(api.Issue{
-				Key: "PROJ-123",
-				ID:  "10001",
-				Fields: api.IssueFields{
-					Project:   &api.Project{Key: "PROJ"},
-					IssueType: &api.IssueType{ID: "10001", Name: "Task"},
+			issue := map[string]any{
+				"key": "PROJ-123",
+				"id":  "10001",
+				"fields": map[string]any{
+					"summary":   "Test issue",
+					"status":    map[string]any{"name": "Backlog"},
+					"issuetype": map[string]any{"id": "10001", "name": "Task"},
+					"priority":  map[string]any{"name": "Medium"},
+					"project":   map[string]any{"key": "PROJ"},
+					"updated":   "2026-04-16T00:00:00.000+0000",
 				},
-			})
+			}
+			_ = json.NewEncoder(w).Encode(issue)
 			return
 		}
-		// No move API should be called
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
@@ -217,9 +221,12 @@ func TestRunUpdate_TypeAlreadyCorrect(t *testing.T) {
 	}
 	opts.SetAPIClient(client)
 
-	// Should succeed without calling move API since it's already the right type
+	// Should succeed without calling move API since it's already the right type.
+	// The silent changeIssueType returns nil (no-op), then WriteAndPresent
+	// re-fetches and shows post-state detail.
 	err = runUpdate(context.Background(), opts, "PROJ-123", "", "", "", "", "Task", nil)
 	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "PROJ-123")
 }
 
 func TestRunUpdate_SummaryOnly(t *testing.T) {
@@ -261,6 +268,28 @@ func TestRunUpdate_SummaryOnly(t *testing.T) {
 	testutil.Equal(t, fields["summary"], "New summary")
 	testutil.Nil(t, fields["description"])
 	testutil.Nil(t, fields["parent"])
+}
+
+func TestRunUpdate_IDOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "e@x", APIToken: "t"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runUpdate(context.Background(), opts, "PROJ-123", "New summary", "", "", "", "", nil)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "PROJ-123\n")
 }
 
 func TestRunUpdate_NoFieldsError(t *testing.T) {

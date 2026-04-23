@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cache"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
+	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 )
 
 // isolateCache points cache I/O at a temp directory and overrides the
@@ -60,7 +62,7 @@ func TestRunList(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runList(opts, "PROJ-123")
+	err = runList(context.Background(), opts, "PROJ-123", "")
 	testutil.RequireNoError(t, err)
 	testutil.Contains(t, stdout.String(), "PROJ-456")
 	testutil.Contains(t, stdout.String(), "Blocks")
@@ -85,8 +87,129 @@ func TestRunList_NoLinks(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &stderr}
 	opts.SetAPIClient(client)
 
-	err = runList(opts, "PROJ-123")
+	err = runList(context.Background(), opts, "PROJ-123", "")
 	testutil.RequireNoError(t, err)
+}
+
+func TestRunList_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"fields": map[string]any{
+				"issuelinks": []any{
+					map[string]any{
+						"id":   "17844",
+						"type": map[string]any{"id": "10", "name": "Blocker", "inward": "is blocked by", "outward": "blocks"},
+						"outwardIssue": map[string]any{
+							"key":    "PROJ-2",
+							"fields": map[string]any{"summary": "Target"},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runList(context.Background(), opts, "PROJ-123", "")
+	testutil.RequireNoError(t, err)
+
+	testutil.Equal(t, stdout.String(), "17844\n")
+}
+
+func linkServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("linkServer: expected GET, got %s", r.Method)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"fields": map[string]any{
+				"issuelinks": []any{
+					map[string]any{
+						"id":   "17844",
+						"type": map[string]any{"id": "10100", "name": "Blocker", "inward": "is blocked by", "outward": "blocks"},
+						"outwardIssue": map[string]any{
+							"key":    "PROJ-2",
+							"fields": map[string]any{"summary": "Target", "status": map[string]any{"name": "Open"}},
+						},
+					},
+				},
+			},
+		})
+	}))
+}
+
+func TestRunList_Extended(t *testing.T) {
+	t.Parallel()
+	server := linkServer(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, Extended: true}
+	opts.SetAPIClient(client)
+
+	err = runList(context.Background(), opts, "PROJ-123", "")
+	testutil.RequireNoError(t, err)
+
+	out := stdout.String()
+	testutil.Contains(t, out, "TYPE_ID")
+	testutil.Contains(t, out, "STATUS")
+	testutil.Contains(t, out, "10100")
+	testutil.Contains(t, out, "Open")
+}
+
+func TestRunList_FieldsProjection(t *testing.T) {
+	t.Parallel()
+	server := linkServer(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runList(context.Background(), opts, "PROJ-123", "TYPE,ISSUE")
+	testutil.RequireNoError(t, err)
+
+	out := stdout.String()
+	// LINK_ID is always present (Identity pin) even though not in --fields
+	testutil.Contains(t, out, "LINK_ID")
+	testutil.Contains(t, out, "TYPE")
+	testutil.Contains(t, out, "ISSUE")
+	testutil.NotContains(t, out, "SUMMARY")
+	testutil.NotContains(t, out, "DIRECTION")
+}
+
+func TestRunList_FieldsWithJSON_Error(t *testing.T) {
+	t.Parallel()
+	server := linkServer(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	opts := &root.Options{Output: "json", Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runList(context.Background(), opts, "PROJ-123", "TYPE")
+	if !errors.Is(err, jtkpresent.ErrFieldsWithJSON) {
+		t.Fatalf("expected ErrFieldsWithJSON, got %v", err)
+	}
 }
 
 func TestRunCreate(t *testing.T) {
@@ -307,8 +430,32 @@ func TestRunTypes(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runTypes(opts)
+	err = runTypes(context.Background(), opts, "")
 	testutil.RequireNoError(t, err)
 	testutil.Contains(t, stdout.String(), "Blocks")
 	testutil.Contains(t, stdout.String(), "Relates")
+}
+
+func TestRunTypes_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issueLinkTypes": []map[string]string{
+				{"id": "1", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+				{"id": "2", "name": "Relates", "inward": "relates to", "outward": "relates to"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runTypes(context.Background(), opts, "")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "1\n2\n")
 }
