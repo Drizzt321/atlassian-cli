@@ -1,5 +1,7 @@
 # jtk CLI Reference
 
+> **Covers:** jtk v1.0.69
+
 Reference for the `jtk` command line tool from [open-cli-collective/atlassian-cli](https://github.com/open-cli-collective/atlassian-cli).
 
 ## Authentication
@@ -45,8 +47,9 @@ jtk [resource] [action] [KEY/ID] [flags]
 
 | Command | Description |
 |---------|-------------|
-| `jtk me` | Show current authenticated user |
+| `jtk me` | Show current authenticated user (account ID, name, email) |
 | `jtk me --id` | Print just the account ID (script-friendly) |
+| `jtk me --extended` | Include timezone, locale, active status, group/role counts |
 
 ## Issues
 
@@ -65,7 +68,7 @@ jtk [resource] [action] [KEY/ID] [flags]
 | `jtk issues move PROJ-1 [PROJ-2 ...] --to-project NEWPROJ` | Move one or more issues to another project (Jira Cloud only). By default synchronous — waits for completion. Max 1000 issues per request. See move flags below |
 | `jtk issues move-status TASK_ID` | Check status of an async move operation (used with `--no-wait`) |
 | `jtk issues delete PROJ-123` | Permanently delete an issue. Interactive `y/N` prompt by default (prompt goes to stderr, reads from stdin); pass `--force` to skip. Destructive and irreversible |
-| `jtk issues types --project KEY` | List valid issue types for a project (output includes the `SUBTASK` column; use values from this list as `--type` on create) |
+| `jtk issues types --project KEY` | List valid issue types for a project (columns: `ID`, `NAME`, `SUBTASK`; use values from `NAME` as `--type` on create). Supports `--id`, `--fields`, `--extended` (adds `DESCRIPTION_KEY`) |
 | `jtk issues fields [PROJ-123]` | List available fields (all fields, or editable fields for a specific issue) |
 | `jtk issues field-options FIELD_NAME_OR_ID [--issue PROJ-123]` | List allowed values for a field (e.g. priority, custom selects) |
 
@@ -144,30 +147,32 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 
 | Command | Description |
 |---------|-------------|
-| `jtk projects list` | List all projects |
-| `jtk projects get KEY` | Get project details |
+| `jtk projects list` | List all projects (columns: `KEY`, `TYPE`, `LEAD`, `NAME`). Supports `--id`, `--fields`, `--extended` (adds `STYLE`, `ISSUE_TYPES`, `COMPONENTS` counts), `--next-page-token` |
+| `jtk projects get KEY` | Get project details. Supports `--id`, `--fields`, `--extended` (enumerates components) |
 
 ## Sprints
 
+`--board` and sprint positional arguments accept either a numeric ID or a name (resolved via cache — see SKILL.md Cache Warming).
+
 | Command | Description |
 |---------|-------------|
-| `jtk sprints list --board ID` | List sprints for board |
-| `jtk sprints current --board ID` | Get active sprint |
-| `jtk sprints issues SPRINT_ID` | List issues in sprint |
-| `jtk sprints add SPRINT_ID PROJ-1 PROJ-2 ...` | Add issues to sprint (issues are positional) |
+| `jtk sprints list --board ID_OR_NAME` | List sprints for board (columns: `ID`, `STATE`, `START`, `END`, `NAME`). Supports `--extended` (adds sprint goals, timestamps), `--id`, `--fields`, `--next-page-token` |
+| `jtk sprints current --board ID_OR_NAME` | Get active sprint. Sprint Goal requires `--extended` (not shown by default). Supports `--id`, `--fields` |
+| `jtk sprints issues SPRINT_ID_OR_NAME` | List issues in sprint. Supports `--extended`, `--id`, `--fields` |
+| `jtk sprints add SPRINT_ID_OR_NAME PROJ-1 PROJ-2 ...` | Add issues to sprint (issues are positional) |
 
 ## Boards
 
 | Command | Description |
 |---------|-------------|
-| `jtk boards list` | List all boards |
-| `jtk boards get ID` | Get board details |
+| `jtk boards list` | List all boards (columns: `ID`, `TYPE`, `PROJECT`, `NAME`). Supports `--extended`, `--id`, `--fields`, `--next-page-token` |
+| `jtk boards get ID_OR_NAME` | Get board details. Supports `--extended` (shows board configuration: filter, columns), `--id`, `--fields` |
 
 ## Comments
 
 | Command | Description |
 |---------|-------------|
-| `jtk comments list PROJ-123` | List comments on issue |
+| `jtk comments list PROJ-123` | List comments on issue. Supports `--fields` (columns: `ID`, `AUTHOR`, `CREATED`, `BODY`) |
 | `jtk comments add PROJ-123 --body "TEXT"` | Add comment (`--body` / `-b` is **required**; supports `\n`, `\t`, `\\` escapes) |
 | `jtk comments delete PROJ-123 COMMENT_ID` | Delete a comment |
 
@@ -186,9 +191,9 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 
 | Command | Description |
 |---------|-------------|
-| `jtk users search "QUERY"` | Search for users (matches display name, email, etc.) |
+| `jtk users search "QUERY"` | Search for users (columns: `ACCOUNT_ID`, `NAME`, `EMAIL`, `ACTIVE`). Supports `--extended` (adds `TIMEZONE`, `LOCALE`), `--id`, `--fields`, `--next-page-token` |
 | `jtk users search "QUERY" --max 1 --id` | Resolve a query to a single account ID (script-friendly) |
-| `jtk users get ACCOUNT_ID` | Get user details by account ID |
+| `jtk users get ACCOUNT_ID` | Get user details by account ID. Supports `--id`, `--fields` |
 | `jtk users get ACCOUNT_ID --id` | Echo just the account ID (useful in pipelines) |
 | `jtk me` | Show current authenticated user (see Current User section above) |
 
@@ -212,7 +217,8 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 - Diagnostics/logs go to stderr
 - **Pagination continuation notices (`More results available ...`) go to STDOUT, not stderr** — this is intentional per `jtk`'s output contract, and applies even with `--id`. When using `--id` in command substitution or piping to a tool that reads line-by-line, size `--max` to match your expectation, or post-filter with `grep -oE '[A-Z]+-[0-9]+' | head -1` (or equivalent) to isolate just the identifier from any trailing notice.
 - Use `--id` global flag for just the primary identifier (useful when piping to another command; note the pagination caveat above)
-- Use `--fulltext` global flag to disable truncation of descriptions/comments
+- Use `--fulltext` global flag to disable truncation of descriptions/comments. `--fulltext` is a no-op when the body field is not selected via `--fields`
+- Use `--fields` (per-command) to select specific columns in table/block output. Invalid field names error before making API calls
 - Use standard shell tools for filtering: `jtk issues list --project KEY | grep "Bug"`
 
 ## Scope of This Reference

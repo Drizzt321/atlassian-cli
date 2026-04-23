@@ -1,5 +1,7 @@
 # cfl CLI Reference
 
+> **Covers:** cfl v1.0.37
+
 Reference for the `cfl` command line tool from [open-cli-collective/atlassian-cli](https://github.com/open-cli-collective/atlassian-cli).
 
 ## Authentication

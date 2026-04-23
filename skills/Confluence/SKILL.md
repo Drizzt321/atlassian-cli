@@ -5,6 +5,8 @@ description: Confluence wiki and knowledge base management via cfl CLI — searc
 
 # Confluence
 
+> **Skill expects:** cfl v1.0.37+
+
 Wiki and knowledge base management via the `cfl` CLI tool ([open-cli-collective/atlassian-cli](https://github.com/open-cli-collective/atlassian-cli)).
 
 ## Prerequisites

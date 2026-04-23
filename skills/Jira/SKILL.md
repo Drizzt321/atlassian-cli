@@ -5,6 +5,8 @@ description: Jira issue tracking and project management via jtk CLI — search, 
 
 # Jira
 
+> **Skill expects:** jtk v1.0.69+
+
 Issue tracking and project management via the `jtk` CLI tool ([open-cli-collective/atlassian-cli](https://github.com/open-cli-collective/atlassian-cli)).
 
 ## Prerequisites
@@ -31,13 +33,13 @@ If still missing: ask the user. Then suggest they persist it:
 
 Env var wins over config. Once set, `jtk issues list` (and other project-scoped commands) work without `--project`.
 
-### Board ID
+### Board (ID or name)
 
-`jtk` has no default-board mechanism — there's no env var or config key for a default board. If a board ID is needed and the user hasn't provided one, ask which board. Suggest `jtk boards list` or `jtk boards list --project KEY` to discover IDs.
+`jtk` has no default-board mechanism — there's no env var or config key for a default board. If a board is needed and the user hasn't provided one, ask which board. Suggest `jtk boards list` or `jtk boards list --project KEY` to discover boards. The `--board` flag (and board-accepting positional arguments) accept either a numeric ID or a board name — names are resolved via the local cache (see Cache Warming).
 
-### Sprint, issue key, attachment ID, comment ID, etc.
+### Sprint (ID or name), issue key, attachment ID, comment ID, etc.
 
-No defaults exist. Ask the user. Do not guess.
+No defaults exist. Ask the user. Do not guess. Sprint-accepting arguments (`jtk sprints add`, `--sprint` on list) accept either a numeric ID or a sprint name — names are resolved via the local cache (see Cache Warming).
 
 ### Assignee / user identity shortcut
 
@@ -131,7 +133,7 @@ Use that key directly — no API lookup needed.
 | Unassign | `jtk issues update PROJ-123 --assignee none` (or equivalently `jtk issues assign PROJ-123 --unassign`) |
 | Transition issue | `jtk transitions list PROJ-123` then `jtk transitions do PROJ-123 "Done"` |
 | Current user | `jtk me` (or `jtk me --id` for just the account ID) |
-| Current sprint | `jtk sprints current --board ID` |
+| Current sprint | `jtk sprints current --board ID_OR_NAME` |
 | Add comment | `jtk comments add PROJ-123 --body "..."` |
 
 **Full CLI reference:** load `CliReference.md`
