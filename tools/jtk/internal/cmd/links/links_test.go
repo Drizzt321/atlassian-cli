@@ -60,7 +60,7 @@ func TestRunList(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runList(opts, "PROJ-123")
+	err = runList(context.Background(), opts, "PROJ-123", "")
 	testutil.RequireNoError(t, err)
 	testutil.Contains(t, stdout.String(), "PROJ-456")
 	testutil.Contains(t, stdout.String(), "Blocks")
@@ -85,8 +85,41 @@ func TestRunList_NoLinks(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &stderr}
 	opts.SetAPIClient(client)
 
-	err = runList(opts, "PROJ-123")
+	err = runList(context.Background(), opts, "PROJ-123", "")
 	testutil.RequireNoError(t, err)
+}
+
+func TestRunList_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"fields": map[string]any{
+				"issuelinks": []any{
+					map[string]any{
+						"id":   "17844",
+						"type": map[string]any{"id": "10", "name": "Blocker", "inward": "is blocked by", "outward": "blocks"},
+						"outwardIssue": map[string]any{
+							"key":    "PROJ-2",
+							"fields": map[string]any{"summary": "Target"},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runList(context.Background(), opts, "PROJ-123", "")
+	testutil.RequireNoError(t, err)
+
+	testutil.Equal(t, stdout.String(), "17844\n")
 }
 
 func TestRunCreate(t *testing.T) {
@@ -307,7 +340,7 @@ func TestRunTypes(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runTypes(opts)
+	err = runTypes(context.Background(), opts, "")
 	testutil.RequireNoError(t, err)
 	testutil.Contains(t, stdout.String(), "Blocks")
 	testutil.Contains(t, stdout.String(), "Relates")
