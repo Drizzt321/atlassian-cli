@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/mutation"
 	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/present/projection"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/resolve"
@@ -88,7 +90,7 @@ func runList(ctx context.Context, opts *root.Options, issueKey, fieldsFlag strin
 		return err
 	}
 
-	links, err := client.GetIssueLinks(issueKey)
+	links, err := client.GetIssueLinks(ctx, issueKey)
 	if err != nil {
 		return err
 	}
@@ -187,11 +189,11 @@ func runCreate(ctx context.Context, opts *root.Options, outwardKey, inwardKey, l
 	}
 	linkType = resolvedLinkType.Name
 
-	if err := client.CreateIssueLink(outwardKey, inwardKey, linkType); err != nil {
+	if err := client.CreateIssueLink(ctx, outwardKey, inwardKey, linkType); err != nil {
 		return err
 	}
 
-	if v.Format == view.FormatJSON {
+	if !opts.EmitIDOnly() && v.Format == view.FormatJSON {
 		return v.JSON(map[string]string{
 			"status":       "created",
 			"outwardIssue": outwardKey,
@@ -200,7 +202,66 @@ func runCreate(ctx context.Context, opts *root.Options, outwardKey, inwardKey, l
 		})
 	}
 
+	// Discover the created link via re-query (Jira returns no link ID from create).
+	var matched *api.IssueLink
+	for i, delay := range mutation.BackoffSchedule {
+		if i > 0 && delay > 0 {
+			select {
+			case <-ctx.Done():
+				goto fallback
+			case <-time.After(delay):
+			}
+		}
+		links, err := client.GetIssueLinks(ctx, outwardKey)
+		if err != nil {
+			continue
+		}
+		matched = findCreatedLink(links, resolvedLinkType, inwardKey)
+		if matched != nil {
+			break
+		}
+	}
+
+	if matched != nil {
+		if opts.EmitIDOnly() {
+			return jtkpresent.EmitIDs(opts, []string{matched.ID})
+		}
+		return jtkpresent.Emit(opts, jtkpresent.LinkPresenter{}.PresentList([]api.IssueLink{*matched}, opts.IsExtended()))
+	}
+
+fallback:
+	if opts.EmitIDOnly() {
+		_ = jtkpresent.Emit(opts, jtkpresent.MutationPresenter{}.Advisory("link ID unavailable — re-query failed"))
+		return nil
+	}
+	_ = jtkpresent.Emit(opts, jtkpresent.MutationPresenter{}.Advisory("post-state unavailable; showing confirmation only"))
 	return jtkpresent.Emit(opts, jtkpresent.LinkPresenter{}.PresentCreated(linkType, outwardKey, inwardKey))
+}
+
+// findCreatedLink searches the outward issue's link list for the newly
+// created link. After the inward-verb swap in runCreate, outwardKey is
+// always the outward issue and inwardKey is always the inward issue.
+// When querying the outward issue's links, the created link appears with
+// InwardIssue set (the other side). We match on type (ID when available,
+// name as fallback) and the inward issue key.
+func findCreatedLink(links []api.IssueLink, resolvedType api.IssueLinkType, inwardKey string) *api.IssueLink {
+	for i := range links {
+		l := &links[i]
+		if !linkTypeMatches(l.Type, resolvedType) {
+			continue
+		}
+		if l.InwardIssue != nil && strings.EqualFold(l.InwardIssue.Key, inwardKey) {
+			return l
+		}
+	}
+	return nil
+}
+
+func linkTypeMatches(actual, expected api.IssueLinkType) bool {
+	if expected.ID != "" && actual.ID == expected.ID {
+		return true
+	}
+	return strings.EqualFold(actual.Name, expected.Name)
 }
 
 func newDeleteCmd(opts *root.Options) *cobra.Command {
@@ -211,15 +272,15 @@ func newDeleteCmd(opts *root.Options) *cobra.Command {
 		Example: `  jtk links delete 10001
   jtk links list PROJ-123   # find link IDs first`,
 		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			return runDelete(opts, args[0])
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDelete(cmd.Context(), opts, args[0])
 		},
 	}
 
 	return cmd
 }
 
-func runDelete(opts *root.Options, linkID string) error {
+func runDelete(ctx context.Context, opts *root.Options, linkID string) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -227,7 +288,7 @@ func runDelete(opts *root.Options, linkID string) error {
 		return err
 	}
 
-	if err := client.DeleteIssueLink(linkID); err != nil {
+	if err := client.DeleteIssueLink(ctx, linkID); err != nil {
 		return err
 	}
 
@@ -287,7 +348,7 @@ func runTypes(ctx context.Context, opts *root.Options, fieldsFlag string) error 
 		return err
 	}
 
-	linkTypes, err := client.GetIssueLinkTypes()
+	linkTypes, err := client.GetIssueLinkTypes(ctx)
 	if err != nil {
 		return err
 	}
@@ -316,6 +377,6 @@ func runTypes(ctx context.Context, opts *root.Options, fieldsFlag string) error 
 }
 
 // GetIssueLinkTypes returns all link types (exported for use by other commands)
-func GetIssueLinkTypes(client *api.Client) ([]api.IssueLinkType, error) {
-	return client.GetIssueLinkTypes()
+func GetIssueLinkTypes(ctx context.Context, client *api.Client) ([]api.IssueLinkType, error) {
+	return client.GetIssueLinkTypes(ctx)
 }

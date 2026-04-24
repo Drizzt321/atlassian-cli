@@ -2,7 +2,6 @@ package projects
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/spf13/cobra"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cache"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/mutation"
 	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/resolve"
 )
@@ -75,12 +75,44 @@ func runUpdate(ctx context.Context, opts *root.Options, keyOrID, name, descripti
 
 	_ = cache.Touch(cache.ProjectDependents()...)
 
+	if opts.EmitIDOnly() {
+		return jtkpresent.EmitIDs(opts, []string{project.Key})
+	}
+
 	if v.Format == view.FormatJSON {
 		return v.JSON(project)
 	}
 
-	model := jtkpresent.ProjectPresenter{}.PresentUpdated(project.Key)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	return nil
+	var lastFetched *api.ProjectDetail
+	return mutation.WriteAndPresent(ctx, opts, mutation.Config{
+		Write: func(_ context.Context) (string, error) {
+			return project.Key, nil
+		},
+		Fetch: func(ctx context.Context, id string) (*present.OutputModel, error) {
+			fetched, err := client.GetProject(ctx, id, api.ProjectGetExpand)
+			if err != nil {
+				return nil, err
+			}
+			lastFetched = fetched
+			return jtkpresent.ProjectPresenter{}.PresentProjectDetail(fetched, opts.IsExtended()), nil
+		},
+		IsFresh: func(_ *present.OutputModel) bool {
+			if lastFetched == nil {
+				return false
+			}
+			if name != "" && lastFetched.Name != name {
+				return false
+			}
+			if description != "" && lastFetched.Description != description {
+				return false
+			}
+			if req.LeadAccountID != "" && lastFetched.Lead != nil && lastFetched.Lead.AccountID != req.LeadAccountID {
+				return false
+			}
+			return true
+		},
+		Fallback: func(id string) *present.OutputModel {
+			return jtkpresent.ProjectPresenter{}.PresentUpdated(id)
+		},
+	})
 }
