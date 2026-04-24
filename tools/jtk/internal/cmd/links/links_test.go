@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/open-cli-collective/atlassian-go/testutil"
@@ -367,6 +368,94 @@ func TestRunCreate_SymmetricVerbNoSwap(t *testing.T) {
 	testutil.RequireNoError(t, err)
 	testutil.Equal(t, req.OutwardIssue.Key, "PROJ-1")
 	testutil.Equal(t, req.InwardIssue.Key, "PROJ-2")
+}
+
+func createServerWithRefetch(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/rest/api/3/issueLinkType":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issueLinkTypes": []map[string]string{
+					{"id": "10100", "name": "Blocker", "inward": "is blocked by", "outward": "blocks"},
+				},
+			})
+		case r.URL.Path == "/rest/api/3/issueLink" && r.Method == "POST":
+			w.WriteHeader(http.StatusCreated)
+		case r.URL.Path == "/rest/api/3/issue/PROJ-123":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"fields": map[string]any{
+					"issuelinks": []map[string]any{
+						{
+							"id":   "17844",
+							"type": map[string]any{"id": "10100", "name": "Blocker", "inward": "is blocked by", "outward": "blocks"},
+							"inwardIssue": map[string]any{
+								"key":    "PROJ-456",
+								"fields": map[string]any{"summary": "Blocked issue", "status": map[string]any{"name": "Open"}},
+							},
+						},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func seedLinkTypesForTest(t *testing.T) {
+	t.Helper()
+	isolateCache(t)
+	testutil.RequireNoError(t, cache.WriteResource("linktypes", "24h", []api.IssueLinkType{
+		{ID: "10100", Name: "Blocker", Inward: "is blocked by", Outward: "blocks"},
+	}))
+}
+
+func TestRunCreate_CanonicalRow(t *testing.T) {
+	t.Parallel()
+	server := createServerWithRefetch(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	seedLinkTypesForTest(t)
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runCreate(context.Background(), opts, "PROJ-123", "PROJ-456", "Blocker")
+	testutil.RequireNoError(t, err)
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	testutil.True(t, len(lines) >= 2, "expected header + data row")
+	testutil.Contains(t, lines[0], "LINK_ID")
+	testutil.Contains(t, lines[0], "TYPE")
+	testutil.Contains(t, lines[0], "DIRECTION")
+	testutil.Contains(t, lines[0], "ISSUE")
+	testutil.Contains(t, out, "17844")
+	testutil.Contains(t, out, "Blocker")
+	testutil.Contains(t, out, "PROJ-456")
+	testutil.NotContains(t, out, "Created")
+}
+
+func TestRunCreate_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := createServerWithRefetch(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	seedLinkTypesForTest(t)
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runCreate(context.Background(), opts, "PROJ-123", "PROJ-456", "Blocker")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "17844\n")
 }
 
 func TestRunCreate_InvalidType(t *testing.T) {

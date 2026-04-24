@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/open-cli-collective/atlassian-go/testutil"
@@ -262,8 +263,39 @@ func TestRunCreate(t *testing.T) {
 
 	err = runCreate(context.Background(), opts, "Environment", "com.atlassian.jira.plugin.system.customfieldtypes:select", "")
 	testutil.RequireNoError(t, err)
-	testutil.Contains(t, stdout.String(), "customfield_10100")
-	testutil.Contains(t, stdout.String(), "Environment")
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	testutil.True(t, len(lines) >= 2, "expected header + data row")
+	testutil.Contains(t, lines[0], "ID")
+	testutil.Contains(t, lines[0], "NAME")
+	testutil.Contains(t, lines[0], "TYPE")
+	testutil.Contains(t, out, "customfield_10100")
+	testutil.Contains(t, out, "Environment")
+}
+
+func TestRunCreate_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(api.Field{
+			ID:     "customfield_10100",
+			Name:   "Environment",
+			Custom: true,
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runCreate(context.Background(), opts, "Environment", "select", "")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "customfield_10100\n")
 }
 
 func TestRunCreate_JSON(t *testing.T) {
@@ -394,7 +426,36 @@ func TestRunRestore(t *testing.T) {
 
 	err = runRestore(context.Background(), opts, "customfield_10100")
 	testutil.RequireNoError(t, err)
-	testutil.Contains(t, stdout.String(), "customfield_10100")
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	testutil.True(t, len(lines) >= 2, "expected header + data row")
+	testutil.Contains(t, lines[0], "ID")
+	testutil.Contains(t, lines[0], "NAME")
+	testutil.Contains(t, out, "customfield_10100")
+}
+
+func TestRunRestore_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runRestore(context.Background(), opts, "customfield_10100")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "customfield_10100\n")
 }
 
 // --- Contexts tests ---
@@ -475,8 +536,37 @@ func TestRunContextsCreate(t *testing.T) {
 
 	err = runContextsCreate(context.Background(), opts, "customfield_10100", "Bug Context", "")
 	testutil.RequireNoError(t, err)
-	testutil.Contains(t, stdout.String(), "10003")
-	testutil.Contains(t, stdout.String(), "Bug Context")
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	testutil.True(t, len(lines) >= 2, "expected header + data row")
+	testutil.Contains(t, lines[0], "ID")
+	testutil.Contains(t, lines[0], "NAME")
+	testutil.Contains(t, out, "10003")
+	testutil.Contains(t, out, "Bug Context")
+}
+
+func TestRunContextsCreate_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(api.FieldContext{
+			ID:   "10003",
+			Name: "Bug Context",
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runContextsCreate(context.Background(), opts, "customfield_10100", "Bug Context", "")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "10003\n")
 }
 
 func TestRunContextsDelete_Force(t *testing.T) {
@@ -570,7 +660,7 @@ func TestRunOptionsList_Table(t *testing.T) {
 			})
 			return
 		}
-		// GetFieldContextOptions
+		// GetFieldContextOptions (GET uses "values" key)
 		_ = json.NewEncoder(w).Encode(api.FieldContextOptionsResponse{
 			Values: []api.FieldContextOption{
 				{ID: "1", Value: "Production", Disabled: false},
@@ -632,8 +722,8 @@ func TestRunOptionsAdd(t *testing.T) {
 			return
 		}
 		testutil.Equal(t, r.Method, http.MethodPost)
-		_ = json.NewEncoder(w).Encode(api.FieldContextOptionsResponse{
-			Values: []api.FieldContextOption{
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"options": []api.FieldContextOption{
 				{ID: "3", Value: "Option A"},
 			},
 		})
@@ -649,8 +739,45 @@ func TestRunOptionsAdd(t *testing.T) {
 
 	err = runOptionsAdd(context.Background(), opts, "customfield_10100", "Option A", "")
 	testutil.RequireNoError(t, err)
-	testutil.Contains(t, stdout.String(), "3")
-	testutil.Contains(t, stdout.String(), "Option A")
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	testutil.True(t, len(lines) >= 2, "expected header + data row")
+	testutil.Contains(t, lines[0], "ID")
+	testutil.Contains(t, lines[0], "VALUE")
+	testutil.Contains(t, out, "3")
+	testutil.Contains(t, out, "Option A")
+}
+
+func TestRunOptionsAdd_IDOnly(t *testing.T) {
+	t.Parallel()
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		if callCount == 1 {
+			_ = json.NewEncoder(w).Encode(api.FieldContextsResponse{
+				Values: []api.FieldContext{{ID: "10001", Name: "Default"}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"options": []api.FieldContextOption{
+				{ID: "3", Value: "Option A"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runOptionsAdd(context.Background(), opts, "customfield_10100", "Option A", "")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "3\n")
 }
 
 func TestRunOptionsUpdate(t *testing.T) {
@@ -665,8 +792,8 @@ func TestRunOptionsUpdate(t *testing.T) {
 			return
 		}
 		testutil.Equal(t, r.Method, http.MethodPut)
-		_ = json.NewEncoder(w).Encode(api.FieldContextOptionsResponse{
-			Values: []api.FieldContextOption{
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"options": []api.FieldContextOption{
 				{ID: "3", Value: "Option A (updated)"},
 			},
 		})
@@ -682,7 +809,44 @@ func TestRunOptionsUpdate(t *testing.T) {
 
 	err = runOptionsUpdate(context.Background(), opts, "customfield_10100", "3", "Option A (updated)", "")
 	testutil.RequireNoError(t, err)
-	testutil.Contains(t, stdout.String(), "Option A (updated)")
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	testutil.True(t, len(lines) >= 2, "expected header + data row")
+	testutil.Contains(t, lines[0], "ID")
+	testutil.Contains(t, lines[0], "VALUE")
+	testutil.Contains(t, out, "Option A (updated)")
+}
+
+func TestRunOptionsUpdate_IDOnly(t *testing.T) {
+	t.Parallel()
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		if callCount == 1 {
+			_ = json.NewEncoder(w).Encode(api.FieldContextsResponse{
+				Values: []api.FieldContext{{ID: "10001", Name: "Default"}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"options": []api.FieldContextOption{
+				{ID: "3", Value: "Option A (updated)"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runOptionsUpdate(context.Background(), opts, "customfield_10100", "3", "Option A (updated)", "")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "3\n")
 }
 
 func TestRunOptionsDelete_Force(t *testing.T) {

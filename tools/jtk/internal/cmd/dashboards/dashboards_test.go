@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/open-cli-collective/atlassian-go/testutil"
@@ -112,13 +113,37 @@ func TestRunCreate(t *testing.T) {
 
 	err = runCreate(opts, "New Board", "Description")
 	testutil.RequireNoError(t, err)
-	testutil.Contains(t, stdout.String(), "New Board")
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	testutil.True(t, len(lines) >= 2, "expected header + data row")
+	testutil.Contains(t, lines[0], "ID")
+	testutil.Contains(t, lines[0], "NAME")
+	testutil.Contains(t, out, "New Board")
 
 	var req api.CreateDashboardRequest
 	err = json.Unmarshal(capturedBody, &req)
 	testutil.RequireNoError(t, err)
 	testutil.Equal(t, req.Name, "New Board")
 	testutil.Equal(t, req.Description, "Description")
+}
+
+func TestRunCreate_IDOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(api.Dashboard{ID: "10099", Name: "New Board"})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runCreate(opts, "New Board", "")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "10099\n")
 }
 
 func TestRunDelete(t *testing.T) {
@@ -183,4 +208,162 @@ func TestRunGadgetsRemove(t *testing.T) {
 	err = runGadgetsRemove(opts, "10001", 42)
 	testutil.RequireNoError(t, err)
 	testutil.Contains(t, stdout.String(), "Removed")
+}
+
+func TestRunGadgetsAdd(t *testing.T) {
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testutil.Equal(t, r.URL.Path, "/rest/api/3/dashboard/10001/gadget")
+		testutil.Equal(t, r.Method, "POST")
+		capturedBody, _ = io.ReadAll(r.Body)
+		_ = json.NewEncoder(w).Encode(api.DashboardGadget{
+			ID:       10124,
+			Title:    "Sprint Burndown",
+			ModuleID: "sprint-burndown-gadget",
+			Position: api.DashboardGadgetPos{Row: 1, Column: 0},
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runGadgetsAdd(context.Background(), opts, "10001", "sprint-burndown-gadget", "Sprint Burndown", "", "1,0")
+	testutil.RequireNoError(t, err)
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	testutil.True(t, len(lines) >= 2, "expected header + data row")
+	testutil.Contains(t, lines[0], "ID")
+	testutil.Contains(t, lines[0], "TITLE")
+	testutil.Contains(t, lines[0], "MODULE")
+	testutil.Contains(t, out, "10124")
+	testutil.Contains(t, out, "Sprint Burndown")
+	testutil.Contains(t, out, "sprint-burndown-gadget")
+	testutil.Contains(t, out, "1,0")
+
+	var req api.AddDashboardGadgetRequest
+	err = json.Unmarshal(capturedBody, &req)
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, req.ModuleKey, "sprint-burndown-gadget")
+	testutil.Equal(t, req.Title, "Sprint Burndown")
+	testutil.NotNil(t, req.Position)
+	testutil.Equal(t, req.Position.Row, 1)
+	testutil.Equal(t, req.Position.Column, 0)
+}
+
+func TestRunGadgetsAdd_IDOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(api.DashboardGadget{
+			ID:       10124,
+			Title:    "Sprint Burndown",
+			ModuleID: "sprint-burndown-gadget",
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runGadgetsAdd(context.Background(), opts, "10001", "sprint-burndown-gadget", "", "", "")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "10124\n")
+}
+
+func TestRunGadgetsAdd_JSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(api.DashboardGadget{
+			ID:       10124,
+			Title:    "Sprint Burndown",
+			ModuleID: "sprint-burndown-gadget",
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "json", Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runGadgetsAdd(context.Background(), opts, "10001", "sprint-burndown-gadget", "", "", "")
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), `"id"`)
+	testutil.Contains(t, stdout.String(), "10124")
+}
+
+func TestRunGadgetsAdd_InvalidPosition(t *testing.T) {
+	client, err := api.New(api.ClientConfig{URL: "https://test.atlassian.net", Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	tests := []struct {
+		name     string
+		position string
+		errMsg   string
+	}{
+		{"no comma", "invalid", "invalid position"},
+		{"bad row", "abc,0", "invalid position row"},
+		{"bad column", "1,xyz", "invalid position column"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := &root.Options{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
+			opts.SetAPIClient(client)
+			err := runGadgetsAdd(context.Background(), opts, "10001", "gadget", "", "", tt.position)
+			testutil.RequireError(t, err)
+			testutil.Contains(t, err.Error(), tt.errMsg)
+		})
+	}
+}
+
+func TestRunGadgetsAdd_NegativePosition(t *testing.T) {
+	client, err := api.New(api.ClientConfig{URL: "https://test.atlassian.net", Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	opts := &root.Options{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runGadgetsAdd(context.Background(), opts, "10001", "gadget", "", "", "-1,0")
+	testutil.RequireError(t, err)
+	testutil.Contains(t, err.Error(), "non-negative")
+}
+
+func TestRunGadgetsAdd_ZeroPosition(t *testing.T) {
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		_ = json.NewEncoder(w).Encode(api.DashboardGadget{
+			ID:       10125,
+			Title:    "Gadget",
+			ModuleID: "test-gadget",
+			Position: api.DashboardGadgetPos{Row: 0, Column: 0},
+		})
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runGadgetsAdd(context.Background(), opts, "10001", "test-gadget", "", "", "0,0")
+	testutil.RequireNoError(t, err)
+
+	var req api.AddDashboardGadgetRequest
+	err = json.Unmarshal(capturedBody, &req)
+	testutil.RequireNoError(t, err)
+	testutil.NotNil(t, req.Position)
+	testutil.Equal(t, req.Position.Row, 0)
+	testutil.Equal(t, req.Position.Column, 0)
 }
