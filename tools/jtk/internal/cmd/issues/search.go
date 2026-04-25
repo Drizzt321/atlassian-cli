@@ -84,7 +84,7 @@ func runSearch(ctx context.Context, opts *root.Options, jql string, maxResults i
 			jtkpresent.IssueListSpec,
 			opts.IsExtended(),
 			fieldsFlag,
-			client.GetFields,
+			fieldsFetcher(client),
 			"issues search",
 		)
 		if err != nil {

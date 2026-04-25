@@ -367,7 +367,8 @@ func TestRunList_Fields_JiraFieldIDs_ProjectsTable(t *testing.T) {
 }
 
 func TestRunList_Fields_HumanName_TriggersFieldsFetch(t *testing.T) {
-	t.Parallel()
+	// Non-parallel: cache isolation uses process-global SetRootForTest.
+	t.Cleanup(cache.SetRootForTest(t.TempDir()))
 	cs := newCapturingServer(t, []string{"TEST-1"}, true, []api.Field{
 		{ID: "issuetype", Name: "Issue Type"},
 	})
@@ -400,7 +401,8 @@ func TestRunList_Fields_UnknownToken_Errors(t *testing.T) {
 }
 
 func TestRunList_Fields_UnrenderedField_ByHumanName_Errors(t *testing.T) {
-	t.Parallel()
+	// Non-parallel: cache isolation uses process-global SetRootForTest.
+	t.Cleanup(cache.SetRootForTest(t.TempDir()))
 	cs := newCapturingServer(t, []string{"TEST-1"}, true, []api.Field{
 		{ID: "customfield_99999", Name: "Phantom"},
 	})
@@ -417,7 +419,8 @@ func TestRunList_Fields_UnrenderedField_ByHumanName_Errors(t *testing.T) {
 }
 
 func TestRunList_Fields_UnrenderedField_ByFieldID_Errors(t *testing.T) {
-	t.Parallel()
+	// Non-parallel: cache isolation uses process-global SetRootForTest.
+	t.Cleanup(cache.SetRootForTest(t.TempDir()))
 	cs := newCapturingServer(t, []string{"TEST-1"}, true, []api.Field{
 		{ID: "customfield_99999", Name: "Phantom"},
 	})
@@ -623,4 +626,29 @@ func TestBuildSprintClause_WarnBranches(t *testing.T) {
 			t.Errorf("want positive-only error, got %v", err)
 		}
 	})
+}
+
+// TestRunList_Fields_HumanName_CacheHit_SkipsFieldsFetch verifies that a fresh
+// fields cache suppresses the live /field call during human-name resolution.
+// Non-parallel: cache isolation uses process-global SetRootForTest.
+func TestRunList_Fields_HumanName_CacheHit_SkipsFieldsFetch(t *testing.T) {
+	seedCacheForIssues(t)
+	testutil.RequireNoError(t, cache.WriteResource("fields", "24h", []api.Field{
+		{ID: "issuetype", Name: "Issue Type"},
+	}))
+
+	cs := newCapturingServer(t, []string{"TEST-1"}, true, nil)
+	defer cs.server.Close()
+
+	opts, stdout, _ := newOptsFor(t, cs)
+	err := runList(context.Background(), opts, "TEST", "", 25, "", false, "Issue Type")
+	testutil.RequireNoError(t, err)
+
+	lines := strings.Split(strings.TrimRight(stdout.String(), "\n"), "\n")
+	if lines[0] != "KEY | TYPE" {
+		t.Errorf("header mismatch: got %q", lines[0])
+	}
+	if cs.fieldsCalls != 0 {
+		t.Errorf("fresh cache must suppress live GetFields; got %d call(s)", cs.fieldsCalls)
+	}
 }

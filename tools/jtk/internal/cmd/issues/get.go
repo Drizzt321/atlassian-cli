@@ -68,7 +68,7 @@ func runGet(ctx context.Context, opts *root.Options, issueKey string, noTruncate
 		jtkpresent.IssueDetailSpec,
 		opts.IsExtended(),
 		fieldsFlag,
-		client.GetFields,
+		fieldsFetcher(client),
 		"issues get",
 	)
 	if err != nil {

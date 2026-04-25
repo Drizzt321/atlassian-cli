@@ -92,7 +92,7 @@ func runList(ctx context.Context, opts *root.Options, project, sprint string, ma
 			jtkpresent.IssueListSpec,
 			opts.IsExtended(),
 			fieldsFlag,
-			client.GetFields,
+			fieldsFetcher(client),
 			"issues list",
 		)
 		if err != nil {
