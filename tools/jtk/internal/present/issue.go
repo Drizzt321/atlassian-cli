@@ -369,10 +369,17 @@ func issueDescriptionText(issue *api.Issue, fulltext bool) string {
 	return desc
 }
 
+// PresentListWithPagination wraps PresentList and appends a pagination
+// hint when hasMore is true.
+func (p IssuePresenter) PresentListWithPagination(issues []api.Issue, extended, hasMore bool, nextToken string) *present.OutputModel {
+	model := p.PresentList(issues, extended)
+	model.Sections = AppendPaginationHintWithToken(model.Sections, hasMore, nextToken)
+	return model
+}
+
 // PresentList creates a table view for a list of issues. Default order
 // is KEY|STATUS|TYPE|PTS|ASSIGNEE|SUMMARY; --extended adds REPORTER,
-// SPRINT, PARENT, UPDATED, LABELS, COMPONENTS. Callers append
-// pagination via AppendPaginationHintWithToken after this returns.
+// SPRINT, PARENT, UPDATED, LABELS, COMPONENTS.
 func (IssuePresenter) PresentList(issues []api.Issue, extended bool) *present.OutputModel {
 	var headers []string
 	if extended {
@@ -572,12 +579,12 @@ func (IssuePresenter) PresentTypeChanged(key, newType string) *present.OutputMod
 // --- No-change/idempotent methods (route to stderr) ---
 
 // PresentTypeAlreadyCurrent creates an advisory when type is already current.
-func (IssuePresenter) PresentTypeAlreadyCurrent(key, typeName string) *present.OutputModel {
+func (IssuePresenter) PresentTypeAlreadyCurrent(typeName string) *present.OutputModel {
 	return &present.OutputModel{
 		Sections: []present.Section{
 			&present.MessageSection{
 				Kind:    present.MessageInfo,
-				Message: fmt.Sprintf("Issue %s is already type %s", key, typeName),
+				Message: fmt.Sprintf("type is already %s", typeName),
 				Stream:  present.StreamStderr,
 			},
 		},
@@ -641,6 +648,20 @@ func (IssuePresenter) PresentDeleteCancelled() *present.OutputModel {
 }
 
 // --- Advisory methods (route to stderr) ---
+
+// PresentTypeFallbackWarning creates a warning when the source issue type was
+// not found in the target project and a fallback type was used.
+func (IssuePresenter) PresentTypeFallbackWarning(sourceType, projectKey, fallbackType string) *present.OutputModel {
+	return &present.OutputModel{
+		Sections: []present.Section{
+			&present.MessageSection{
+				Kind:    present.MessageWarning,
+				Message: fmt.Sprintf("warning: source issue type %q not found in project %s; using %q as the target type (pass --to-type to override).", sourceType, projectKey, fallbackType),
+				Stream:  present.StreamStderr,
+			},
+		},
+	}
+}
 
 // PresentTypeChangeProgress creates an advisory about type change in progress.
 func (IssuePresenter) PresentTypeChangeProgress(key, typeName string) *present.OutputModel {

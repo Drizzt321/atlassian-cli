@@ -187,28 +187,6 @@ func TestNewTestCmd_NoURL(t *testing.T) {
 	testutil.Contains(t, stderr, "No Jira URL configured")
 }
 
-func TestMaskToken(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		token string
-		want  string
-	}{
-		{"normal token", "abcd1234567890wxyz", "abcd********wxyz"},
-		{"short token", "abc", "********"},
-		{"exactly 8 chars", "12345678", "********"},
-		{"9 chars", "123456789", "1234********6789"},
-		{"empty token", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := maskToken(tt.token)
-			testutil.Equal(t, got, tt.want)
-		})
-	}
-}
-
 func getConfigDir(t *testing.T) string {
 	// os.UserConfigDir() returns different paths per platform:
 	// - macOS: $HOME/Library/Application Support

@@ -1,6 +1,8 @@
 package present
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -268,5 +270,88 @@ func TestFormatBoardRef(t *testing.T) {
 				t.Errorf("formatBoardRef: got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSprintPresenter_PresentListWithPagination(t *testing.T) {
+	t.Parallel()
+	sprints := []api.Sprint{{ID: 1, Name: "S1", State: "active"}}
+
+	t.Run("appends_hint", func(t *testing.T) {
+		model := SprintPresenter{}.PresentListWithPagination(sprints, false, true, "tok")
+		if len(model.Sections) != 2 {
+			t.Fatalf("want 2 sections, got %d", len(model.Sections))
+		}
+	})
+
+	t.Run("no_hint", func(t *testing.T) {
+		model := SprintPresenter{}.PresentListWithPagination(sprints, false, false, "")
+		if len(model.Sections) != 1 {
+			t.Errorf("want 1 section, got %d", len(model.Sections))
+		}
+	})
+}
+
+func TestSprintPresenter_PresentPostStateUnavailable(t *testing.T) {
+	t.Parallel()
+	model := SprintPresenter{}.PresentPostStateUnavailable()
+	msg := model.Sections[0].(*present.MessageSection)
+	if msg.Stream != present.StreamStderr {
+		t.Errorf("want StreamStderr, got %v", msg.Stream)
+	}
+}
+
+func TestSprintPresenter_PresentResolutionAmbiguity(t *testing.T) {
+	t.Parallel()
+	model := SprintPresenter{}.PresentResolutionAmbiguity("Sprint X")
+	msg := model.Sections[0].(*present.MessageSection)
+	if msg.Kind != present.MessageWarning {
+		t.Errorf("want MessageWarning, got %v", msg.Kind)
+	}
+	if msg.Stream != present.StreamStderr {
+		t.Errorf("want StreamStderr, got %v", msg.Stream)
+	}
+	if !strings.HasPrefix(msg.Message, "warning: ") {
+		t.Errorf("want warning: prefix, got %q", msg.Message)
+	}
+}
+
+func TestSprintPresenter_PresentResolutionCacheMiss(t *testing.T) {
+	t.Parallel()
+	model := SprintPresenter{}.PresentResolutionCacheMiss("Sprint X")
+	msg := model.Sections[0].(*present.MessageSection)
+	if msg.Kind != present.MessageWarning {
+		t.Errorf("want MessageWarning, got %v", msg.Kind)
+	}
+	if !strings.HasPrefix(msg.Message, "warning: ") {
+		t.Errorf("want warning: prefix, got %q", msg.Message)
+	}
+}
+
+func TestSprintPresenter_PresentResolutionError(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("dial tcp: connection refused")
+	model := SprintPresenter{}.PresentResolutionError("Sprint X", sentinel)
+	msg := model.Sections[0].(*present.MessageSection)
+	if msg.Kind != present.MessageWarning {
+		t.Errorf("want MessageWarning, got %v", msg.Kind)
+	}
+	if !strings.HasPrefix(msg.Message, "warning: ") {
+		t.Errorf("want warning: prefix, got %q", msg.Message)
+	}
+	if !strings.Contains(msg.Message, sentinel.Error()) {
+		t.Errorf("want error detail in message, got %q", msg.Message)
+	}
+}
+
+func TestSprintPresenter_PresentResolutionSynthetic(t *testing.T) {
+	t.Parallel()
+	model := SprintPresenter{}.PresentResolutionSynthetic("Sprint X")
+	msg := model.Sections[0].(*present.MessageSection)
+	if msg.Kind != present.MessageWarning {
+		t.Errorf("want MessageWarning, got %v", msg.Kind)
+	}
+	if !strings.HasPrefix(msg.Message, "warning: ") {
+		t.Errorf("want warning: prefix, got %q", msg.Message)
 	}
 }
