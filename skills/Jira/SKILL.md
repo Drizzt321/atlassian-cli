@@ -5,7 +5,7 @@ description: Jira issue tracking and project management via jtk CLI — search, 
 
 # Jira
 
-> **Skill expects:** jtk v1.0.75+
+> **Skill expects:** jtk v1.0.84+
 
 Issue tracking and project management via the `jtk` CLI tool ([open-cli-collective/atlassian-cli](https://github.com/open-cli-collective/atlassian-cli)).
 

@@ -1,6 +1,6 @@
 # jtk CLI Reference
 
-> **Covers:** jtk v1.0.75
+> **Covers:** jtk v1.0.84
 
 Reference for the `jtk` command line tool from [open-cli-collective/atlassian-cli](https://github.com/open-cli-collective/atlassian-cli).
 
@@ -234,7 +234,7 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 
 This reference covers `jtk`'s daily-use operator surface — issues, transitions, links, sprints, boards, comments, attachments, projects, users. It intentionally does **not** cover administrative surfaces, which are out of scope for the workflows in this skill:
 
-- `jtk fields` — custom field management (create, delete, restore, contexts, options)
+- `jtk fields` — custom field management (create, delete, restore, show, contexts, options). Note: `--custom` was renamed to `--custom-fields` on `fields list` in v1.0.84
 - `jtk dashboards` — dashboard and gadget management
 - `jtk automation` — automation rule management (list, export, create, update, enable/disable)
 
