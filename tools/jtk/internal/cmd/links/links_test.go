@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/open-cli-collective/atlassian-go/testutil"
@@ -369,6 +370,94 @@ func TestRunCreate_SymmetricVerbNoSwap(t *testing.T) {
 	testutil.Equal(t, req.InwardIssue.Key, "PROJ-2")
 }
 
+func createServerWithRefetch(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/rest/api/3/issueLinkType":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issueLinkTypes": []map[string]string{
+					{"id": "10100", "name": "Blocker", "inward": "is blocked by", "outward": "blocks"},
+				},
+			})
+		case r.URL.Path == "/rest/api/3/issueLink" && r.Method == "POST":
+			w.WriteHeader(http.StatusCreated)
+		case r.URL.Path == "/rest/api/3/issue/PROJ-123":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"fields": map[string]any{
+					"issuelinks": []map[string]any{
+						{
+							"id":   "17844",
+							"type": map[string]any{"id": "10100", "name": "Blocker", "inward": "is blocked by", "outward": "blocks"},
+							"inwardIssue": map[string]any{
+								"key":    "PROJ-456",
+								"fields": map[string]any{"summary": "Blocked issue", "status": map[string]any{"name": "Open"}},
+							},
+						},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func seedLinkTypesForTest(t *testing.T) {
+	t.Helper()
+	isolateCache(t)
+	testutil.RequireNoError(t, cache.WriteResource("linktypes", "24h", []api.IssueLinkType{
+		{ID: "10100", Name: "Blocker", Inward: "is blocked by", Outward: "blocks"},
+	}))
+}
+
+func TestRunCreate_CanonicalRow(t *testing.T) {
+	t.Parallel()
+	server := createServerWithRefetch(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	seedLinkTypesForTest(t)
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runCreate(context.Background(), opts, "PROJ-123", "PROJ-456", "Blocker")
+	testutil.RequireNoError(t, err)
+
+	out := stdout.String()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	testutil.True(t, len(lines) >= 2, "expected header + data row")
+	testutil.Contains(t, lines[0], "LINK_ID")
+	testutil.Contains(t, lines[0], "TYPE")
+	testutil.Contains(t, lines[0], "DIRECTION")
+	testutil.Contains(t, lines[0], "ISSUE")
+	testutil.Contains(t, out, "17844")
+	testutil.Contains(t, out, "Blocker")
+	testutil.Contains(t, out, "PROJ-456")
+	testutil.NotContains(t, out, "Created")
+}
+
+func TestRunCreate_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := createServerWithRefetch(t)
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	seedLinkTypesForTest(t)
+	var stdout bytes.Buffer
+	opts := &root.Options{Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runCreate(context.Background(), opts, "PROJ-123", "PROJ-456", "Blocker")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "17844\n")
+}
+
 func TestRunCreate_InvalidType(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -407,9 +496,29 @@ func TestRunDelete(t *testing.T) {
 	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	opts.SetAPIClient(client)
 
-	err = runDelete(opts, "10001")
+	err = runDelete(context.Background(), opts, "10001")
 	testutil.RequireNoError(t, err)
-	testutil.Contains(t, stdout.String(), "Deleted")
+	testutil.Equal(t, stdout.String(), "Deleted link 10001\n")
+}
+
+func TestRunDelete_JSONOutputEmitsText(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout, stderr bytes.Buffer
+	opts := &root.Options{Output: "json", Stdout: &stdout, Stderr: &stderr}
+	opts.SetAPIClient(client)
+
+	err = runDelete(context.Background(), opts, "10001")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "Deleted link 10001\n")
+	testutil.Equal(t, stderr.String(), "")
 }
 
 func TestRunTypes(t *testing.T) {
@@ -458,4 +567,57 @@ func TestRunTypes_IDOnly(t *testing.T) {
 	err = runTypes(context.Background(), opts, "")
 	testutil.RequireNoError(t, err)
 	testutil.Equal(t, stdout.String(), "1\n2\n")
+}
+
+func TestFindCreatedLink_MatchByName(t *testing.T) {
+	t.Parallel()
+	links := []api.IssueLink{
+		{ID: "100", Type: api.IssueLinkType{ID: "1", Name: "Blocks"}, InwardIssue: &api.LinkedIssue{Key: "PROJ-456"}},
+		{ID: "200", Type: api.IssueLinkType{ID: "2", Name: "Relates"}, InwardIssue: &api.LinkedIssue{Key: "PROJ-789"}},
+	}
+	resolved := api.IssueLinkType{ID: "1", Name: "Blocks"}
+	got := findCreatedLink(links, resolved, "PROJ-456")
+	testutil.NotNil(t, got)
+	testutil.Equal(t, got.ID, "100")
+}
+
+func TestFindCreatedLink_MatchByID(t *testing.T) {
+	t.Parallel()
+	links := []api.IssueLink{
+		{ID: "100", Type: api.IssueLinkType{ID: "1", Name: "DifferentName"}, InwardIssue: &api.LinkedIssue{Key: "PROJ-456"}},
+	}
+	resolved := api.IssueLinkType{ID: "1", Name: "Blocks"}
+	got := findCreatedLink(links, resolved, "PROJ-456")
+	testutil.NotNil(t, got)
+	testutil.Equal(t, got.ID, "100")
+}
+
+func TestFindCreatedLink_DirectionAware(t *testing.T) {
+	t.Parallel()
+	links := []api.IssueLink{
+		{ID: "100", Type: api.IssueLinkType{ID: "1", Name: "Blocks"}, OutwardIssue: &api.LinkedIssue{Key: "PROJ-456"}},
+	}
+	resolved := api.IssueLinkType{ID: "1", Name: "Blocks"}
+	got := findCreatedLink(links, resolved, "PROJ-456")
+	testutil.Nil(t, got)
+}
+
+func TestFindCreatedLink_NoMatch(t *testing.T) {
+	t.Parallel()
+	links := []api.IssueLink{
+		{ID: "100", Type: api.IssueLinkType{ID: "1", Name: "Blocks"}, InwardIssue: &api.LinkedIssue{Key: "PROJ-999"}},
+	}
+	resolved := api.IssueLinkType{ID: "1", Name: "Blocks"}
+	got := findCreatedLink(links, resolved, "PROJ-456")
+	testutil.Nil(t, got)
+}
+
+func TestFindCreatedLink_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+	links := []api.IssueLink{
+		{ID: "100", Type: api.IssueLinkType{ID: "1", Name: "blocks"}, InwardIssue: &api.LinkedIssue{Key: "proj-456"}},
+	}
+	resolved := api.IssueLinkType{Name: "Blocks"}
+	got := findCreatedLink(links, resolved, "PROJ-456")
+	testutil.NotNil(t, got)
 }

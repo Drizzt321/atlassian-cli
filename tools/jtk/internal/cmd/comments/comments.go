@@ -206,11 +206,15 @@ func runAdd(ctx context.Context, opts *root.Options, issueKey, body string) erro
 		return err
 	}
 
+	if opts.EmitIDOnly() {
+		return jtkpresent.EmitIDs(opts, []string{comment.ID})
+	}
+
 	if opts.Output == "json" {
 		return v.JSON(comment)
 	}
 
-	return jtkpresent.Emit(opts, jtkpresent.CommentPresenter{}.PresentAdded(comment.ID, issueKey))
+	return jtkpresent.Emit(opts, jtkpresent.CommentPresenter{}.PresentAddedDetail(issueKey, comment))
 }
 
 func newDeleteCmd(opts *root.Options) *cobra.Command {
@@ -229,8 +233,6 @@ func newDeleteCmd(opts *root.Options) *cobra.Command {
 }
 
 func runDelete(ctx context.Context, opts *root.Options, issueKey, commentID string) error {
-	v := opts.View()
-
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
@@ -238,10 +240,6 @@ func runDelete(ctx context.Context, opts *root.Options, issueKey, commentID stri
 
 	if err := client.DeleteComment(ctx, issueKey, commentID); err != nil {
 		return err
-	}
-
-	if opts.Output == "json" {
-		return v.JSON(map[string]string{"status": "deleted", "commentId": commentID})
 	}
 
 	return jtkpresent.Emit(opts, jtkpresent.CommentPresenter{}.PresentDeleted(commentID, issueKey))

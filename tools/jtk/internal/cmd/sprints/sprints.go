@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	jtkartifact "github.com/open-cli-collective/jira-ticket-cli/internal/artifact"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/mutation"
 	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/present/projection"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/resolve"
@@ -142,44 +144,76 @@ func runList(ctx context.Context, opts *root.Options, client *api.Client, boardI
 		}
 	}
 
-	result, err := client.ListSprints(ctx, boardID, state, startAt, maxResults)
+	allSprints, err := fetchAllSprints(ctx, client, boardID, state)
 	if err != nil {
 		return err
 	}
 
-	hasMore := !result.IsLast
-	if hasMore && len(result.Values) == 0 {
-		return fmt.Errorf("unexpected paginated response: IsLast=false with empty values (startAt=%d)", startAt)
+	jtkpresent.SortSprintsForDisplay(allSprints)
+
+	// Client-side pagination window over the sorted slice.
+	if maxResults <= 0 {
+		maxResults = 50
 	}
+	total := len(allSprints)
+	if startAt > total {
+		startAt = total
+	}
+	end := startAt + maxResults
+	if end > total {
+		end = total
+	}
+	page := allSprints[startAt:end]
+	hasMore := end < total
 	nextToken := ""
 	if hasMore {
-		nextToken = strconv.Itoa(startAt + len(result.Values))
+		nextToken = strconv.Itoa(end)
 	}
 
 	if idOnly {
-		ids := make([]string, len(result.Values))
-		for i, s := range result.Values {
+		ids := make([]string, len(page))
+		for i, s := range page {
 			ids[i] = strconv.Itoa(s.ID)
 		}
 		return jtkpresent.EmitIDsWithPaginationToken(opts, ids, hasMore, nextToken)
 	}
 
-	if len(result.Values) == 0 {
+	if len(page) == 0 {
 		return jtkpresent.Emit(opts, jtkpresent.SprintPresenter{}.PresentEmpty())
 	}
 
 	if v.Format == view.FormatJSON {
-		arts := jtkartifact.ProjectSprints(result.Values, opts.ArtifactMode())
+		arts := jtkartifact.ProjectSprints(page, opts.ArtifactMode())
 		return v.RenderArtifactList(artifact.NewListResult(arts, hasMore))
 	}
 
-	presenter := jtkpresent.SprintPresenter{}
-	model := presenter.PresentList(result.Values, opts.IsExtended())
+	model := jtkpresent.SprintPresenter{}.PresentListWithPagination(page, opts.IsExtended(), hasMore, nextToken)
 	if projected {
 		projection.ApplyToTableInModel(model, selected)
 	}
-	model.Sections = jtkpresent.AppendPaginationHintWithToken(model.Sections, hasMore, nextToken)
 	return jtkpresent.Emit(opts, model)
+}
+
+const fetchPageSize = 50
+
+func fetchAllSprints(ctx context.Context, client *api.Client, boardID int, state string) ([]api.Sprint, error) {
+	var all []api.Sprint
+	startAt := 0
+	for {
+		result, err := client.ListSprints(ctx, boardID, state, startAt, fetchPageSize)
+		if err != nil {
+			return nil, err
+		}
+		if !result.IsLast && len(result.Values) == 0 {
+			return nil, fmt.Errorf("unexpected paginated response: IsLast=false with empty values (startAt=%d)", startAt)
+		}
+		all = append(all, result.Values...)
+		if result.IsLast {
+			break
+		}
+		startAt += len(result.Values)
+	}
+	return all, nil
 }
 
 func newCurrentCmd(opts *root.Options) *cobra.Command {
@@ -250,6 +284,13 @@ func runCurrent(ctx context.Context, opts *root.Options, client *api.Client, boa
 
 	if v.Format == view.FormatJSON {
 		return v.RenderArtifact(jtkartifact.ProjectSprint(sprint, opts.ArtifactMode()))
+	}
+
+	// Enrich synthetic board (no name) for table output paths.
+	if board.Name == "" {
+		if enriched, err := client.GetBoard(ctx, board.ID); err == nil && enriched.ID == board.ID && enriched.Name != "" {
+			board = enriched
+		}
 	}
 
 	presenter := jtkpresent.SprintPresenter{}
@@ -339,8 +380,7 @@ func runIssues(ctx context.Context, opts *root.Options, sprintID int, maxResults
 		return v.RenderArtifactList(artifact.NewListResult(arts, hasMore))
 	}
 
-	model := jtkpresent.IssuePresenter{}.PresentList(result.Issues, opts.IsExtended())
-	model.Sections = jtkpresent.AppendPaginationHintWithToken(model.Sections, hasMore, nextToken)
+	model := jtkpresent.IssuePresenter{}.PresentListWithPagination(result.Issues, opts.IsExtended(), hasMore, nextToken)
 	return jtkpresent.Emit(opts, model)
 }
 
@@ -379,6 +419,58 @@ func runAdd(ctx context.Context, opts *root.Options, client *api.Client, sprintI
 		return err
 	}
 
-	model := jtkpresent.SprintPresenter{}.PresentMoved(issueKeys, sprintID)
-	return jtkpresent.Emit(opts, model)
+	if opts.EmitIDOnly() {
+		return jtkpresent.EmitIDs(opts, issueKeys)
+	}
+
+	// Verify membership via GetSprintIssues and present matched issues.
+	keySet := make(map[string]bool, len(issueKeys))
+	for _, k := range issueKeys {
+		keySet[k] = true
+	}
+
+	var matched []api.Issue
+	for i, delay := range mutation.BackoffSchedule {
+		if i > 0 && delay > 0 {
+			select {
+			case <-ctx.Done():
+				goto fallback
+			case <-time.After(delay):
+			}
+		}
+
+		matched = nil
+		found := make(map[string]bool)
+		startAt := 0
+		for {
+			result, err := client.GetSprintIssues(ctx, sprintID, startAt, 50)
+			if err != nil {
+				break
+			}
+			for _, issue := range result.Issues {
+				if keySet[issue.Key] {
+					matched = append(matched, issue)
+					found[issue.Key] = true
+				}
+			}
+			if len(found) == len(issueKeys) {
+				break
+			}
+			if len(result.Issues) == 0 || startAt+len(result.Issues) >= result.Total {
+				break
+			}
+			startAt += len(result.Issues)
+		}
+		if len(found) == len(issueKeys) {
+			break
+		}
+	}
+
+	if len(matched) == len(issueKeys) {
+		return jtkpresent.Emit(opts, jtkpresent.IssuePresenter{}.PresentList(matched, opts.IsExtended()))
+	}
+
+fallback:
+	_ = jtkpresent.Emit(opts, jtkpresent.SprintPresenter{}.PresentPostStateUnavailable())
+	return jtkpresent.Emit(opts, jtkpresent.SprintPresenter{}.PresentMoved(issueKeys, sprintID))
 }

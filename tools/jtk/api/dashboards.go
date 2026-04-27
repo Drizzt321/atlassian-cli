@@ -23,7 +23,19 @@ type Dashboard struct {
 
 // SharePerm represents a dashboard sharing permission
 type SharePerm struct {
-	Type string `json:"type"` // "global", "project", "group", etc.
+	Type    string            `json:"type"`
+	Group   *SharePermGroup   `json:"group,omitempty"`
+	Project *SharePermProject `json:"project,omitempty"`
+}
+
+// SharePermGroup identifies a group in a sharing permission.
+type SharePermGroup struct {
+	Name string `json:"name"`
+}
+
+// SharePermProject identifies a project in a sharing permission.
+type SharePermProject struct {
+	Key string `json:"key"`
 }
 
 // DashboardGadget represents a gadget on a dashboard
@@ -62,6 +74,15 @@ type CreateDashboardRequest struct {
 	Description      string      `json:"description,omitempty"`
 	EditPermissions  []SharePerm `json:"editPermissions"`
 	SharePermissions []SharePerm `json:"sharePermissions"`
+}
+
+// AddDashboardGadgetRequest represents a request to add a gadget to a dashboard
+type AddDashboardGadgetRequest struct {
+	ModuleKey string              `json:"moduleKey,omitempty"`
+	Title     string              `json:"title,omitempty"`
+	Color     string              `json:"color,omitempty"`
+	Position  *DashboardGadgetPos `json:"position,omitempty"`
+	URI       string              `json:"uri,omitempty"`
 }
 
 // DashboardSearchResponse represents the response from dashboard search
@@ -201,4 +222,25 @@ func (c *Client) RemoveDashboardGadget(dashboardID string, gadgetID int) error {
 	urlStr := fmt.Sprintf("%s/dashboard/%s/gadget/%d", c.BaseURL, url.PathEscape(dashboardID), gadgetID)
 	_, err := c.Delete(context.Background(), urlStr)
 	return err
+}
+
+// AddDashboardGadget adds a gadget to a dashboard
+func (c *Client) AddDashboardGadget(dashboardID string, req AddDashboardGadgetRequest) (*DashboardGadget, error) {
+	if dashboardID == "" {
+		return nil, fmt.Errorf("dashboard ID is required")
+	}
+
+	urlStr := fmt.Sprintf("%s/dashboard/%s/gadget", c.BaseURL, url.PathEscape(dashboardID))
+
+	body, err := c.Post(context.Background(), urlStr, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var gadget DashboardGadget
+	if err := json.Unmarshal(body, &gadget); err != nil {
+		return nil, fmt.Errorf("parsing gadget: %w", err)
+	}
+
+	return &gadget, nil
 }

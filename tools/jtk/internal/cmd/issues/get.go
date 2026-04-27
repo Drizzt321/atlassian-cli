@@ -8,6 +8,7 @@ import (
 	"github.com/open-cli-collective/atlassian-go/view"
 
 	jtkartifact "github.com/open-cli-collective/jira-ticket-cli/internal/artifact"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/cache"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/present/projection"
@@ -47,10 +48,6 @@ func runGet(ctx context.Context, opts *root.Options, issueKey string, noTruncate
 		return err
 	}
 
-	// --id wins over --fields: skip projection entirely when --id is set so
-	// we don't waste a GetFields() call on a token whose result will be
-	// thrown away. Also defensively skip JSON + --fields error in this case
-	// — --id also overrides --output json semantics.
 	if opts.EmitIDOnly() {
 		issue, err := client.GetIssue(ctx, issueKey)
 		if err != nil {
@@ -68,7 +65,7 @@ func runGet(ctx context.Context, opts *root.Options, issueKey string, noTruncate
 		jtkpresent.IssueDetailSpec,
 		opts.IsExtended(),
 		fieldsFlag,
-		client.GetFields,
+		fieldsFetcher(client),
 		"issues get",
 	)
 	if err != nil {
@@ -85,12 +82,34 @@ func runGet(ctx context.Context, opts *root.Options, issueKey string, noTruncate
 	}
 
 	presenter := jtkpresent.IssuePresenter{}
+
+	if opts.IsExtended() {
+		noTruncate = true
+		transitions, transErr := client.GetTransitions(ctx, issueKey)
+		watchers, _ := client.GetWatchers(ctx, issueKey)
+		fields, _ := cache.GetFieldsCacheFirst(ctx, client)
+		dctx := &jtkpresent.DetailContext{
+			Transitions:       transitions,
+			TransitionsFailed: transErr != nil,
+			Watchers:          watchers,
+			Fields:            fields,
+		}
+
+		if projected {
+			model := presenter.PresentDetailProjection(issue, client.IssueURL(issue.Key), noTruncate, dctx)
+			projection.ApplyToDetailInModel(model, selected)
+			return jtkpresent.Emit(opts, model)
+		}
+		model := presenter.PresentDetailExtended(issue, client.IssueURL(issue.Key), dctx)
+		return jtkpresent.Emit(opts, model)
+	}
+
 	if projected {
-		model := presenter.PresentDetailProjection(issue, client.IssueURL(issue.Key), noTruncate)
+		model := presenter.PresentDetailProjection(issue, client.IssueURL(issue.Key), noTruncate, nil)
 		projection.ApplyToDetailInModel(model, selected)
 		return jtkpresent.Emit(opts, model)
 	}
 
-	model := presenter.PresentDetail(issue, client.IssueURL(issue.Key), opts.IsExtended(), noTruncate)
+	model := presenter.PresentDetail(issue, client.IssueURL(issue.Key), false, noTruncate)
 	return jtkpresent.Emit(opts, model)
 }

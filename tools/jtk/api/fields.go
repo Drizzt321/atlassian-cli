@@ -3,6 +3,7 @@ package api //nolint:revive // package name is intentional
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -220,7 +221,7 @@ func (c *Client) GetFieldOptionsFromEditMeta(ctx context.Context, issueKey, fiel
 
 	fieldData, ok := fieldsData[fieldID].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("field %s not found in edit metadata", fieldID)
+		return nil, fmt.Errorf("%w: %s", ErrFieldNotInEditMeta, fieldID)
 	}
 
 	allowedValues, ok := fieldData["allowedValues"].([]any)
@@ -249,4 +250,53 @@ func (c *Client) GetFieldOptionsFromEditMeta(ctx context.Context, issueKey, fiel
 	}
 
 	return options, nil
+}
+
+// ResolveFieldOptions returns allowed values for a field in the context of a
+// specific issue. It uses a three-tier resolution strategy:
+//  1. Edit metadata (reliable for editable fields, already project-scoped)
+//  2. Default field context + context options (handles read-only custom fields)
+//  3. Global field options (last resort)
+func ResolveFieldOptions(ctx context.Context, c *Client, issueKey, fieldID string) ([]FieldOptionValue, error) {
+	opts, editErr := c.GetFieldOptionsFromEditMeta(ctx, issueKey, fieldID)
+	if editErr == nil {
+		return opts, nil
+	}
+	if !errors.Is(editErr, ErrFieldNotInEditMeta) {
+		return nil, fmt.Errorf("resolving field options for %s on %s: %w", fieldID, issueKey, editErr)
+	}
+
+	ctxResult, ctxErr := c.GetDefaultFieldContext(ctx, fieldID)
+	if ctxErr == nil {
+		allOpts, pageErr := getAllContextOptions(ctx, c, fieldID, ctxResult.ID)
+		if pageErr != nil {
+			return nil, fmt.Errorf("fetching context options for %s: %w", fieldID, pageErr)
+		}
+		if len(allOpts) > 0 {
+			return allOpts, nil
+		}
+	}
+
+	globalOpts, globalErr := c.GetFieldOptions(ctx, fieldID)
+	if globalErr == nil && len(globalOpts) > 0 {
+		return globalOpts, nil
+	}
+
+	return nil, fmt.Errorf("no options found for field %s on %s", fieldID, issueKey)
+}
+
+// ErrFieldNotInEditMeta is returned when a field is not present in the issue's
+// edit metadata (i.e., it is not editable for that issue).
+var ErrFieldNotInEditMeta = errors.New("field not found in edit metadata")
+
+func getAllContextOptions(ctx context.Context, c *Client, fieldID, contextID string) ([]FieldOptionValue, error) {
+	opts, err := c.GetAllFieldContextOptions(ctx, fieldID, contextID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]FieldOptionValue, len(opts))
+	for i, o := range opts {
+		result[i] = FieldOptionValue{ID: o.ID, Value: o.Value, Disabled: o.Disabled}
+	}
+	return result, nil
 }

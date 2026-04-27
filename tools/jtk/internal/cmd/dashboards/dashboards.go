@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-cli-collective/atlassian-go/present"
 	"github.com/open-cli-collective/atlassian-go/view"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
@@ -53,10 +53,12 @@ func newListCmd(opts *root.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List dashboards",
-		Long:  "List accessible dashboards. Use --search to filter by name.",
+		Long: `List accessible dashboards. Use --search to filter by name.
+Use --extended for additional fields (rank, permissions).`,
 		Example: `  jtk dashboards list
   jtk dashboards list --search "Sprint"
-  jtk dashboards list --max 10`,
+  jtk dashboards list --max 10
+  jtk dashboards list --extended`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runList(cmd.Context(), opts, search, maxResults)
 		},
@@ -92,23 +94,46 @@ func runList(_ context.Context, opts *root.Options, search string, maxResults in
 		dashboards = result.Dashboards
 	}
 
+	if opts.EmitIDOnly() {
+		ids := make([]string, len(dashboards))
+		for i, d := range dashboards {
+			ids[i] = d.ID
+		}
+		return jtkpresent.EmitIDs(opts, ids)
+	}
+
 	if len(dashboards) == 0 {
-		model := jtkpresent.DashboardPresenter{}.PresentEmpty()
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-		return nil
+		return jtkpresent.Emit(opts, jtkpresent.DashboardPresenter{}.PresentEmpty())
 	}
 
 	if v.Format == view.FormatJSON {
 		return v.JSON(dashboards)
 	}
 
-	// Text path: presenter → render → write
-	model := jtkpresent.DashboardPresenter{}.PresentList(dashboards)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-	return nil
+	gadgetCounts := fetchGadgetCounts(client, dashboards)
+
+	presenter := jtkpresent.DashboardPresenter{}
+	if opts.IsExtended() {
+		return jtkpresent.Emit(opts, presenter.PresentListExtended(dashboards, gadgetCounts))
+	}
+
+	return jtkpresent.Emit(opts, presenter.PresentList(dashboards, gadgetCounts))
+}
+
+// fetchGadgetCounts fetches gadget counts for each dashboard sequentially.
+// Dashboard API methods use internal context.Background(); cancellation support
+// deferred until those methods accept context.Context.
+// Errors on individual fetches are silently skipped (missing key renders as "-").
+func fetchGadgetCounts(client *api.Client, dashboards []api.Dashboard) map[string]int {
+	counts := make(map[string]int, len(dashboards))
+	for _, d := range dashboards {
+		resp, err := client.GetDashboardGadgets(d.ID)
+		if err != nil {
+			continue
+		}
+		counts[d.ID] = len(resp.Gadgets)
+	}
+	return counts
 }
 
 func newGetCmd(opts *root.Options) *cobra.Command {
@@ -139,7 +164,6 @@ func runGet(_ context.Context, opts *root.Options, dashboardID string) error {
 		return err
 	}
 
-	// Also get gadgets
 	gadgetsResp, err := client.GetDashboardGadgets(dashboardID)
 	if err != nil {
 		return fmt.Errorf("failed to get gadgets: %w", err)
@@ -152,12 +176,8 @@ func runGet(_ context.Context, opts *root.Options, dashboardID string) error {
 		})
 	}
 
-	// Text path: presenter → render → write
 	model := jtkpresent.DashboardPresenter{}.PresentDetail(dash, gadgetsResp.Gadgets)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-	return nil
+	return jtkpresent.Emit(opts, model)
 }
 
 func newCreateCmd(opts *root.Options) *cobra.Command {
@@ -202,20 +222,16 @@ func runCreate(opts *root.Options, name, description string) error {
 		return err
 	}
 
+	if opts.EmitIDOnly() {
+		return jtkpresent.EmitIDs(opts, []string{dash.ID})
+	}
+
 	if v.Format == view.FormatJSON {
 		return v.JSON(dash)
 	}
 
-	var model *present.OutputModel
-	if dash.View != "" {
-		model = jtkpresent.DashboardPresenter{}.PresentCreatedWithURL(dash.Name, dash.ID, dash.View)
-	} else {
-		model = jtkpresent.DashboardPresenter{}.PresentCreated(dash.Name, dash.ID)
-	}
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-
-	return nil
+	counts := map[string]int{dash.ID: 0}
+	return jtkpresent.Emit(opts, jtkpresent.DashboardPresenter{}.PresentList([]api.Dashboard{*dash}, counts))
 }
 
 func newDeleteCmd(opts *root.Options) *cobra.Command {
@@ -234,8 +250,6 @@ func newDeleteCmd(opts *root.Options) *cobra.Command {
 }
 
 func runDelete(opts *root.Options, dashboardID string) error {
-	v := opts.View()
-
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
@@ -245,24 +259,18 @@ func runDelete(opts *root.Options, dashboardID string) error {
 		return err
 	}
 
-	if v.Format == view.FormatJSON {
-		return v.JSON(map[string]string{"status": "deleted", "dashboardId": dashboardID})
-	}
-
-	model := jtkpresent.DashboardPresenter{}.PresentDeleted(dashboardID)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	return nil
+	return jtkpresent.Emit(opts, jtkpresent.DashboardPresenter{}.PresentDeleted(dashboardID))
 }
 
 func newGadgetsCmd(opts *root.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gadgets",
 		Short: "Manage dashboard gadgets",
-		Long:  "Commands for listing and removing gadgets on dashboards.",
+		Long:  "Commands for listing, adding, and removing gadgets on dashboards.",
 	}
 
 	cmd.AddCommand(newGadgetsListCmd(opts))
+	cmd.AddCommand(newGadgetsAddCmd(opts))
 	cmd.AddCommand(newGadgetsRemoveCmd(opts))
 
 	return cmd
@@ -296,23 +304,100 @@ func runGadgetsList(_ context.Context, opts *root.Options, dashboardID string) e
 		return err
 	}
 
+	if opts.EmitIDOnly() {
+		ids := make([]string, len(result.Gadgets))
+		for i, g := range result.Gadgets {
+			ids[i] = strconv.Itoa(g.ID)
+		}
+		return jtkpresent.EmitIDs(opts, ids)
+	}
+
 	if len(result.Gadgets) == 0 {
-		model := jtkpresent.DashboardPresenter{}.PresentNoGadgets(dashboardID)
-		out := present.Render(model, opts.RenderStyle())
-		_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-		return nil
+		return jtkpresent.Emit(opts, jtkpresent.DashboardPresenter{}.PresentNoGadgets(dashboardID))
 	}
 
 	if v.Format == view.FormatJSON {
 		return v.JSON(result.Gadgets)
 	}
 
-	// Text path: presenter → render → write
-	model := jtkpresent.DashboardPresenter{}.PresentGadgets(result.Gadgets)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	_, _ = fmt.Fprint(opts.Stderr, out.Stderr)
-	return nil
+	return jtkpresent.Emit(opts, jtkpresent.DashboardPresenter{}.PresentGadgets(result.Gadgets))
+}
+
+func newGadgetsAddCmd(opts *root.Options) *cobra.Command {
+	var moduleKey, title, color, position string
+
+	cmd := &cobra.Command{
+		Use:   "add <dashboard-id>",
+		Short: "Add a gadget to a dashboard",
+		Long:  "Add a gadget to a dashboard by its module key.",
+		Example: `  # Add a sprint burndown gadget
+  jtk dashboards gadgets add 10001 --type com.atlassian.jira.gadgets:sprint-burndown-gadget
+
+  # Add with position and title
+  jtk dashboards gadgets add 10001 --type com.atlassian.jira.gadgets:filter-results-gadget --position 1,0 --title "My Filter"`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runGadgetsAdd(cmd.Context(), opts, args[0], moduleKey, title, color, position)
+		},
+	}
+
+	cmd.Flags().StringVarP(&moduleKey, "type", "t", "", "Gadget module key (required)")
+	cmd.Flags().StringVar(&title, "title", "", "Gadget title")
+	cmd.Flags().StringVar(&color, "color", "", "Gadget color")
+	cmd.Flags().StringVarP(&position, "position", "p", "", "Position as row,column (e.g. 1,0)")
+
+	_ = cmd.MarkFlagRequired("type")
+
+	return cmd
+}
+
+func runGadgetsAdd(_ context.Context, opts *root.Options, dashboardID, moduleKey, title, color, positionStr string) error {
+	v := opts.View()
+
+	client, err := opts.APIClient()
+	if err != nil {
+		return err
+	}
+
+	req := api.AddDashboardGadgetRequest{
+		ModuleKey: moduleKey,
+		Title:     title,
+		Color:     color,
+	}
+
+	if positionStr != "" {
+		parts := strings.SplitN(positionStr, ",", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid position %q: expected row,column (e.g. 1,0)", positionStr)
+		}
+		row, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			return fmt.Errorf("invalid position row %q: %w", parts[0], err)
+		}
+		col, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return fmt.Errorf("invalid position column %q: %w", parts[1], err)
+		}
+		if row < 0 || col < 0 {
+			return fmt.Errorf("invalid position %q: row and column must be non-negative", positionStr)
+		}
+		req.Position = &api.DashboardGadgetPos{Row: row, Column: col}
+	}
+
+	gadget, err := client.AddDashboardGadget(dashboardID, req)
+	if err != nil {
+		return err
+	}
+
+	if opts.EmitIDOnly() {
+		return jtkpresent.EmitIDs(opts, []string{strconv.Itoa(gadget.ID)})
+	}
+
+	if v.Format == view.FormatJSON {
+		return v.JSON(gadget)
+	}
+
+	return jtkpresent.Emit(opts, jtkpresent.DashboardPresenter{}.PresentGadgets([]api.DashboardGadget{*gadget}))
 }
 
 func newGadgetsRemoveCmd(opts *root.Options) *cobra.Command {
@@ -335,8 +420,6 @@ func newGadgetsRemoveCmd(opts *root.Options) *cobra.Command {
 }
 
 func runGadgetsRemove(opts *root.Options, dashboardID string, gadgetID int) error {
-	v := opts.View()
-
 	client, err := opts.APIClient()
 	if err != nil {
 		return err
@@ -346,16 +429,5 @@ func runGadgetsRemove(opts *root.Options, dashboardID string, gadgetID int) erro
 		return err
 	}
 
-	if v.Format == view.FormatJSON {
-		return v.JSON(map[string]interface{}{
-			"status":      "removed",
-			"dashboardId": dashboardID,
-			"gadgetId":    gadgetID,
-		})
-	}
-
-	model := jtkpresent.DashboardPresenter{}.PresentGadgetRemoved(gadgetID, dashboardID)
-	out := present.Render(model, opts.RenderStyle())
-	_, _ = fmt.Fprint(opts.Stdout, out.Stdout)
-	return nil
+	return jtkpresent.Emit(opts, jtkpresent.DashboardPresenter{}.PresentGadgetRemoved(gadgetID, dashboardID))
 }

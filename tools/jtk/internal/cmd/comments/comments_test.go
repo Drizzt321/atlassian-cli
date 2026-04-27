@@ -595,3 +595,99 @@ func TestRunList_MultipleCommentsFullMode(t *testing.T) {
 	testutil.Contains(t, output, "Second comment")
 	// Comments are now rendered as DetailSections with blank line separators (renderer-owned)
 }
+
+func TestRunAdd_IDOnly(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.Comment{
+				ID:     "21276",
+				Author: api.User{DisplayName: "Alice"},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}, IDOnly: true}
+	opts.SetAPIClient(client)
+
+	err = runAdd(context.Background(), opts, "TEST-1", "test body")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "21276\n")
+}
+
+func TestRunAdd_PostState(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.Comment{
+				ID:      "21276",
+				Author:  api.User{DisplayName: "Alice"},
+				Created: "2024-06-15T10:00:00Z",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	opts.SetAPIClient(client)
+
+	err = runAdd(context.Background(), opts, "TEST-1", "test body")
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "TEST-1 #21276")
+	testutil.Contains(t, stdout.String(), "Alice")
+}
+
+func TestRunDelete_TextConfirmation(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout, stderr bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &stderr}
+	opts.SetAPIClient(client)
+
+	err = runDelete(context.Background(), opts, "PROJ-1", "12345")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "Deleted comment 12345 from PROJ-1\n")
+	testutil.Equal(t, stderr.String(), "")
+}
+
+func TestRunDelete_JSONOutputEmitsText(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout, stderr bytes.Buffer
+	opts := &root.Options{Output: "json", Stdout: &stdout, Stderr: &stderr}
+	opts.SetAPIClient(client)
+
+	err = runDelete(context.Background(), opts, "PROJ-1", "12345")
+	testutil.RequireNoError(t, err)
+	testutil.Equal(t, stdout.String(), "Deleted comment 12345 from PROJ-1\n")
+	testutil.Equal(t, stderr.String(), "")
+}
