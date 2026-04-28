@@ -79,6 +79,30 @@ func (f *IssueFields) UnmarshalJSON(data []byte) error {
 		}
 	}
 
+	if f.Sprint == nil {
+		if sprintRaw, ok := raw["customfield_10020"]; ok {
+			f.Sprint = resolveSprintFromCustomField(sprintRaw)
+		}
+	}
+
+	return nil
+}
+
+func resolveSprintFromCustomField(raw json.RawMessage) *Sprint {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var arr []Sprint
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		if len(arr) == 0 {
+			return nil
+		}
+		return &arr[len(arr)-1]
+	}
+	var s Sprint
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return &s
+	}
 	return nil
 }
 
@@ -328,10 +352,12 @@ type BoardColumn struct {
 
 // Transition represents a workflow transition
 type Transition struct {
-	ID     string                     `json:"id"`
-	Name   string                     `json:"name"`
-	To     Status                     `json:"to"`
-	Fields map[string]TransitionField `json:"fields,omitempty"`
+	ID            string                     `json:"id"`
+	Name          string                     `json:"name"`
+	HasScreen     bool                       `json:"hasScreen"`
+	IsConditional bool                       `json:"isConditional"`
+	To            Status                     `json:"to"`
+	Fields        map[string]TransitionField `json:"fields,omitempty"`
 }
 
 // TransitionField represents field metadata for a transition
@@ -349,13 +375,20 @@ type FieldOption struct {
 	Value string `json:"value,omitempty"`
 }
 
+// CommentVisibility represents the visibility restriction on a comment.
+type CommentVisibility struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
 // Comment represents an issue comment
 type Comment struct {
-	ID      string       `json:"id"`
-	Author  User         `json:"author"`
-	Body    *ADFDocument `json:"body"`
-	Created string       `json:"created"`
-	Updated string       `json:"updated"`
+	ID         string             `json:"id"`
+	Author     User               `json:"author"`
+	Body       *ADFDocument       `json:"body"`
+	Created    string             `json:"created"`
+	Updated    string             `json:"updated"`
+	Visibility *CommentVisibility `json:"visibility,omitempty"`
 }
 
 // Field represents a Jira field definition

@@ -65,6 +65,73 @@ func TestLinkTypesSpec_MatchesPresentTypesHeaders(t *testing.T) {
 
 func TestLinkPresenter_PresentList_Extended(t *testing.T) {
 	t.Parallel()
+	links := []api.IssueLink{
+		{
+			ID:   "17844",
+			Type: api.IssueLinkType{ID: "10100", Name: "Blocker", Inward: "is blocked by", Outward: "blocks"},
+			OutwardIssue: &api.LinkedIssue{
+				Key: "MON-4819",
+				Fields: struct {
+					Summary   string         `json:"summary"`
+					Status    *api.Status    `json:"status,omitempty"`
+					IssueType *api.IssueType `json:"issuetype,omitempty"`
+				}{Summary: "Linked issue B", Status: &api.Status{Name: "Backlog"}},
+			},
+		},
+		{
+			ID:   "17845",
+			Type: api.IssueLinkType{ID: "10200", Name: "Relates", Inward: "relates to", Outward: "relates to"},
+			InwardIssue: &api.LinkedIssue{
+				Key: "MON-4700",
+				Fields: struct {
+					Summary   string         `json:"summary"`
+					Status    *api.Status    `json:"status,omitempty"`
+					IssueType *api.IssueType `json:"issuetype,omitempty"`
+				}{Summary: "Fix ghost row"},
+			},
+		},
+	}
+
+	model := LinkPresenter{}.PresentList(links, true)
+	table := model.Sections[0].(*present.TableSection)
+
+	expectedHeaders := []string{"LINK_ID", "TYPE_ID", "TYPE", "DIRECTION", "ISSUE", "STATUS", "SUMMARY"}
+	if len(table.Headers) != len(expectedHeaders) {
+		t.Fatalf("expected %d headers, got %d", len(expectedHeaders), len(table.Headers))
+	}
+	for i, h := range expectedHeaders {
+		if table.Headers[i] != h {
+			t.Errorf("header[%d]: expected %q, got %q", i, h, table.Headers[i])
+		}
+	}
+
+	for i, row := range table.Rows {
+		if len(row.Cells) != len(expectedHeaders) {
+			t.Fatalf("row %d: expected %d cells, got %d", i, len(expectedHeaders), len(row.Cells))
+		}
+	}
+
+	// Row 0: OutwardIssue with status
+	r0 := table.Rows[0].Cells
+	wantR0 := []string{"17844", "10100", "Blocker", "is blocked by", "MON-4819", "Backlog", "Linked issue B"}
+	for i, w := range wantR0 {
+		if r0[i] != w {
+			t.Errorf("row0[%d] (%s): expected %q, got %q", i, expectedHeaders[i], w, r0[i])
+		}
+	}
+
+	// Row 1: InwardIssue with nil status
+	r1 := table.Rows[1].Cells
+	wantR1 := []string{"17845", "10200", "Relates", "relates to", "MON-4700", "-", "Fix ghost row"}
+	for i, w := range wantR1 {
+		if r1[i] != w {
+			t.Errorf("row1[%d] (%s): expected %q, got %q", i, expectedHeaders[i], w, r1[i])
+		}
+	}
+}
+
+func TestLinkPresenter_PresentList_Default_CellOrder(t *testing.T) {
+	t.Parallel()
 	links := []api.IssueLink{{
 		ID:   "17844",
 		Type: api.IssueLinkType{ID: "10100", Name: "Blocker", Inward: "is blocked by", Outward: "blocks"},
@@ -78,14 +145,18 @@ func TestLinkPresenter_PresentList_Extended(t *testing.T) {
 		},
 	}}
 
-	model := LinkPresenter{}.PresentList(links, true)
+	model := LinkPresenter{}.PresentList(links, false)
 	table := model.Sections[0].(*present.TableSection)
 
-	if table.Rows[0].Cells[5] != "10100" {
-		t.Errorf("TYPE_ID: expected '10100', got %q", table.Rows[0].Cells[5])
+	want := []string{"17844", "Blocker", "is blocked by", "MON-4819", "Linked issue B"}
+	row := table.Rows[0].Cells
+	if len(row) != len(want) {
+		t.Fatalf("expected %d cells, got %d", len(want), len(row))
 	}
-	if table.Rows[0].Cells[6] != "Backlog" {
-		t.Errorf("STATUS: expected 'Backlog', got %q", table.Rows[0].Cells[6])
+	for i, w := range want {
+		if row[i] != w {
+			t.Errorf("cell[%d]: expected %q, got %q", i, w, row[i])
+		}
 	}
 }
 

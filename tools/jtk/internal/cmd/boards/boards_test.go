@@ -448,6 +448,50 @@ func TestRunGet_Extended(t *testing.T) {
 	}
 }
 
+func TestRunGet_Extended_EmptyFilterName(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/configuration") {
+			_ = json.NewEncoder(w).Encode(api.BoardConfiguration{
+				ID:     42,
+				Name:   "Sprint Board",
+				Filter: api.BoardFilter{ID: "10084", Name: ""},
+				ColumnConfig: api.BoardColumnConfig{
+					Columns: []api.BoardColumn{
+						{Name: "Backlog"},
+						{Name: "Ready for Development"},
+						{Name: "In Development"},
+					},
+				},
+			})
+		} else {
+			_ = json.NewEncoder(w).Encode(api.Board{
+				ID: 42, Name: "Sprint Board", Type: "scrum",
+				Location: api.BoardLocation{ProjectKey: "PROJ", ProjectName: "My Project"},
+			})
+		}
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "test@test.com", APIToken: "token"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}, Extended: true}
+	opts.SetAPIClient(client)
+
+	resolvedBoard := &api.Board{ID: 42, Name: "Sprint Board"}
+	err = runGet(context.Background(), opts, client, resolvedBoard, "")
+	testutil.RequireNoError(t, err)
+
+	output := stdout.String()
+	testutil.Contains(t, output, "Filter: id: 10084")
+	if strings.Contains(output, "Filter:  (id:") {
+		t.Errorf("filter should not have leading space before (id:): %q", output)
+	}
+	testutil.Contains(t, output, "Column config: Backlog, Ready for Development, In Development")
+}
+
 func TestRunGet_NameFallback(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -543,4 +587,125 @@ func TestRunGet_MissingArg(t *testing.T) {
 	rootCmd.SetArgs([]string{"boards", "get"})
 	err = rootCmd.Execute()
 	testutil.NotNil(t, err)
+}
+
+func TestRunGet_Extended_FilterNameAlreadyPresent_NoExtraFetch(t *testing.T) {
+	t.Parallel()
+	var filterFetched bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/filter/"):
+			filterFetched = true
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.Contains(r.URL.Path, "/configuration"):
+			_ = json.NewEncoder(w).Encode(api.BoardConfiguration{
+				Filter: api.BoardFilter{ID: "100", Name: "already set"},
+				ColumnConfig: api.BoardColumnConfig{
+					Columns: []api.BoardColumn{{Name: "Done"}},
+				},
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(api.Board{
+				ID: 23, Name: "B", Type: "scrum",
+				Location: api.BoardLocation{ProjectKey: "MON"},
+			})
+		}
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}, Extended: true}
+	opts.SetAPIClient(client)
+
+	err = runGet(context.Background(), opts, client, &api.Board{ID: 23, Name: "B"}, "")
+	testutil.RequireNoError(t, err)
+	testutil.Contains(t, stdout.String(), "Filter: already set (id: 100)")
+	if filterFetched {
+		t.Error("filter endpoint should not be called when name is already present")
+	}
+}
+
+func TestRunGet_Extended_FilterNameResolved(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/configuration"):
+			_ = json.NewEncoder(w).Encode(api.BoardConfiguration{
+				ID:     23,
+				Name:   "MON board",
+				Filter: api.BoardFilter{ID: "10026", Name: ""},
+				ColumnConfig: api.BoardColumnConfig{
+					Columns: []api.BoardColumn{{Name: "Ready"}, {Name: "Done"}},
+				},
+			})
+		case strings.Contains(r.URL.Path, "/filter/"):
+			_, _ = w.Write([]byte(`{"id":"10026","name":"MON Aggregate"}`))
+		default:
+			_ = json.NewEncoder(w).Encode(api.Board{
+				ID: 23, Name: "MON board", Type: "scrum",
+				Location: api.BoardLocation{ProjectKey: "MON", ProjectName: "Platform Development"},
+			})
+		}
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}, Extended: true}
+	opts.SetAPIClient(client)
+
+	resolvedBoard := &api.Board{ID: 23, Name: "MON board"}
+	err = runGet(context.Background(), opts, client, resolvedBoard, "")
+	testutil.RequireNoError(t, err)
+
+	output := stdout.String()
+	testutil.Contains(t, output, "Filter: MON Aggregate (id: 10026)")
+}
+
+func TestRunGet_Extended_FilterNameFallback(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/configuration"):
+			_ = json.NewEncoder(w).Encode(api.BoardConfiguration{
+				ID:     23,
+				Name:   "MON board",
+				Filter: api.BoardFilter{ID: "10026", Name: ""},
+				ColumnConfig: api.BoardColumnConfig{
+					Columns: []api.BoardColumn{{Name: "Ready"}},
+				},
+			})
+		case strings.Contains(r.URL.Path, "/filter/"):
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"errorMessages":["You do not have permission"]}`))
+		default:
+			_ = json.NewEncoder(w).Encode(api.Board{
+				ID: 23, Name: "MON board", Type: "scrum",
+				Location: api.BoardLocation{ProjectKey: "MON", ProjectName: "Platform Development"},
+			})
+		}
+	}))
+	defer server.Close()
+
+	client, err := api.New(api.ClientConfig{URL: server.URL, Email: "t@t.com", APIToken: "tok"})
+	testutil.RequireNoError(t, err)
+
+	var stdout bytes.Buffer
+	opts := &root.Options{Output: "table", Stdout: &stdout, Stderr: &bytes.Buffer{}, Extended: true}
+	opts.SetAPIClient(client)
+
+	resolvedBoard := &api.Board{ID: 23, Name: "MON board"}
+	err = runGet(context.Background(), opts, client, resolvedBoard, "")
+	testutil.RequireNoError(t, err)
+
+	output := stdout.String()
+	testutil.Contains(t, output, "Filter: id: 10026")
 }

@@ -438,10 +438,10 @@ func TestRunGet_Success(t *testing.T) {
 	testutil.RequireNoError(t, err)
 	testutil.Equal(t, string(content), fileContent)
 
-	// Verify success message
+	// Verify exact success message format
 	output := stdout.String()
-	testutil.Contains(t, output, "Downloaded")
-	testutil.Contains(t, output, "downloaded.txt")
+	wantMsg := fmt.Sprintf("Downloaded 10001 → %s (36 B)", outputPath)
+	testutil.Contains(t, output, wantMsg)
 }
 
 // --- delete tests ---
