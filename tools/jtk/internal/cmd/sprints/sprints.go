@@ -14,6 +14,7 @@ import (
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
 	jtkartifact "github.com/open-cli-collective/jira-ticket-cli/internal/artifact"
+	"github.com/open-cli-collective/jira-ticket-cli/internal/cache"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/cmd/root"
 	"github.com/open-cli-collective/jira-ticket-cli/internal/mutation"
 	jtkpresent "github.com/open-cli-collective/jira-ticket-cli/internal/present"
@@ -22,6 +23,12 @@ import (
 )
 
 func noFieldFetch(_ context.Context) ([]api.Field, error) { return nil, nil }
+
+func issueFieldsFetcher(client *api.Client) func(context.Context) ([]api.Field, error) {
+	return func(ctx context.Context) ([]api.Field, error) {
+		return cache.GetFieldsCacheFirst(ctx, client)
+	}
+}
 
 // validateBoardRef rejects inputs that would parse as numeric but produce a
 // synthetic Board{ID: n} with n <= 0, which the downstream Agile endpoints
@@ -307,15 +314,20 @@ func runCurrent(ctx context.Context, opts *root.Options, client *api.Client, boa
 func newIssuesCmd(opts *root.Options) *cobra.Command {
 	var maxResults int
 	var nextPageToken string
+	var fieldsFlag string
 
 	cmd := &cobra.Command{
 		Use:   "issues <sprint>",
 		Short: "List issues in a sprint",
 		Long:  "List all issues in a specific sprint. Accepts a sprint ID or name (resolved via cache).",
 		Example: `  jtk sprints issues 456
-  jtk sprints issues "MON Sprint 70"`,
+  jtk sprints issues "MON Sprint 70"
+  jtk sprints issues 456 --fields KEY,STATUS,customfield_10005`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !opts.EmitIDOnly() && fieldsFlag != "" && opts.View().Format == view.FormatJSON {
+				return jtkpresent.ErrFieldsWithJSON
+			}
 			client, err := opts.APIClient()
 			if err != nil {
 				return err
@@ -324,17 +336,18 @@ func newIssuesCmd(opts *root.Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runIssues(cmd.Context(), opts, resolvedSprint.ID, maxResults, nextPageToken)
+			return runIssues(cmd.Context(), opts, resolvedSprint.ID, maxResults, nextPageToken, fieldsFlag)
 		},
 	}
 
 	cmd.Flags().IntVarP(&maxResults, "max", "m", 50, "Maximum number of results")
 	cmd.Flags().StringVar(&nextPageToken, "next-page-token", "", "Decimal startAt for the next page")
+	cmd.Flags().StringVar(&fieldsFlag, "fields", "", "Comma-separated display columns (headers, Jira field IDs, or human names)")
 
 	return cmd
 }
 
-func runIssues(ctx context.Context, opts *root.Options, sprintID int, maxResults int, nextPageToken string) error {
+func runIssues(ctx context.Context, opts *root.Options, sprintID int, maxResults int, nextPageToken string, fieldsFlag string) error {
 	v := opts.View()
 
 	client, err := opts.APIClient()
@@ -342,12 +355,35 @@ func runIssues(ctx context.Context, opts *root.Options, sprintID int, maxResults
 		return err
 	}
 
+	idOnly := opts.EmitIDOnly()
+
+	var selected []projection.ColumnSpec
+	var projected bool
+	if !idOnly {
+		selected, projected, err = projection.Resolve(
+			ctx,
+			jtkpresent.IssueListSpec,
+			opts.IsExtended(),
+			fieldsFlag,
+			issueFieldsFetcher(client),
+			"sprints issues",
+		)
+		if err != nil {
+			return err
+		}
+	}
+
 	startAt, err := jtkpresent.ParseStartAtToken(nextPageToken)
 	if err != nil {
 		return err
 	}
 
-	result, err := client.GetSprintIssues(ctx, sprintID, startAt, maxResults)
+	var fetchFields []string
+	if projected {
+		fetchFields = projection.DeriveFetchFields(selected)
+	}
+
+	result, err := client.GetSprintIssues(ctx, sprintID, startAt, maxResults, fetchFields)
 	if err != nil {
 		return err
 	}
@@ -363,7 +399,7 @@ func runIssues(ctx context.Context, opts *root.Options, sprintID int, maxResults
 		nextToken = strconv.Itoa(startAt + len(result.Issues))
 	}
 
-	if opts.EmitIDOnly() {
+	if idOnly {
 		ids := make([]string, len(result.Issues))
 		for i, issue := range result.Issues {
 			ids[i] = issue.Key
@@ -381,6 +417,10 @@ func runIssues(ctx context.Context, opts *root.Options, sprintID int, maxResults
 	}
 
 	model := jtkpresent.IssuePresenter{}.PresentListWithPagination(result.Issues, opts.IsExtended(), hasMore, nextToken)
+	if projected {
+		jtkpresent.AppendDynamicTableColumns(model, result.Issues, projection.DynamicSpecs(selected))
+		projection.ApplyToTableInModel(model, selected)
+	}
 	return jtkpresent.Emit(opts, model)
 }
 
@@ -443,7 +483,7 @@ func runAdd(ctx context.Context, opts *root.Options, client *api.Client, sprintI
 		found := make(map[string]bool)
 		startAt := 0
 		for {
-			result, err := client.GetSprintIssues(ctx, sprintID, startAt, 50)
+			result, err := client.GetSprintIssues(ctx, sprintID, startAt, 50, nil)
 			if err != nil {
 				break
 			}
