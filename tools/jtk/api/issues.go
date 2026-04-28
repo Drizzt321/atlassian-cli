@@ -397,6 +397,9 @@ func FormatCustomFieldValue(v any) string {
 	}
 	switch val := v.(type) {
 	case string:
+		if strings.Contains(val, "={") {
+			return ""
+		}
 		return val
 	case float64:
 		if val == float64(int64(val)) {
@@ -413,7 +416,7 @@ func FormatCustomFieldValue(v any) string {
 		if s, ok := val["displayName"].(string); ok {
 			return s
 		}
-		return fmt.Sprintf("%v", val)
+		return ""
 	case []any:
 		parts := make([]string, 0, len(val))
 		for _, item := range val {
@@ -435,7 +438,7 @@ func FormatCustomFieldValue(v any) string {
 		}
 		return "no"
 	default:
-		return fmt.Sprintf("%v", v)
+		return ""
 	}
 }
 
