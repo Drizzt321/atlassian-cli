@@ -390,6 +390,21 @@ func versionNames(vs []Version) string {
 	return strings.Join(names, ", ")
 }
 
+// ExtractFieldValue returns a display-ready string for any Jira field on an issue.
+// Typed struct fields (status, assignee, etc.) use knownFieldExtractors;
+// everything else falls back to FormatCustomFieldValue on the CustomFields map.
+func ExtractFieldValue(issue *Issue, fieldID string) string {
+	if extract, ok := knownFieldExtractors[fieldID]; ok {
+		return extract(issue)
+	}
+	if issue.Fields.CustomFields != nil {
+		if raw, ok := issue.Fields.CustomFields[fieldID]; ok {
+			return FormatCustomFieldValue(raw)
+		}
+	}
+	return ""
+}
+
 // FormatCustomFieldValue formats an arbitrary custom field value as a display string.
 func FormatCustomFieldValue(v any) string {
 	if v == nil {
@@ -397,6 +412,9 @@ func FormatCustomFieldValue(v any) string {
 	}
 	switch val := v.(type) {
 	case string:
+		if strings.Contains(val, "={") {
+			return ""
+		}
 		return val
 	case float64:
 		if val == float64(int64(val)) {
@@ -413,7 +431,7 @@ func FormatCustomFieldValue(v any) string {
 		if s, ok := val["displayName"].(string); ok {
 			return s
 		}
-		return fmt.Sprintf("%v", val)
+		return ""
 	case []any:
 		parts := make([]string, 0, len(val))
 		for _, item := range val {
@@ -435,7 +453,7 @@ func FormatCustomFieldValue(v any) string {
 		}
 		return "no"
 	default:
-		return fmt.Sprintf("%v", v)
+		return ""
 	}
 }
 

@@ -2,8 +2,11 @@ package present
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/open-cli-collective/atlassian-go/atime"
 	"github.com/open-cli-collective/atlassian-go/present"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
@@ -281,18 +284,85 @@ func TestAutomationPresenter_PresentGetDetail_ShowComponents(t *testing.T) {
 
 	model := AutomationPresenter{}.PresentGetDetail(rule, true)
 
-	// Header + State + Components + component table = 4
-	// (no description, so 3 msg sections + 1 table)
+	// Header + State + Components + component tree = 4
 	if len(model.Sections) != 4 {
-		t.Fatalf("expected 4 sections (3 msg + table), got %d", len(model.Sections))
+		t.Fatalf("expected 4 sections (3 msg + tree), got %d", len(model.Sections))
 	}
 
-	table, ok := model.Sections[3].(*present.TableSection)
+	tree, ok := model.Sections[3].(*present.MessageSection)
 	if !ok {
-		t.Fatalf("expected TableSection at [3], got %T", model.Sections[3])
+		t.Fatalf("expected MessageSection at [3], got %T", model.Sections[3])
 	}
-	if len(table.Rows) != 2 {
-		t.Errorf("expected 2 component rows, got %d", len(table.Rows))
+	if !strings.Contains(tree.Message, "TRIGGER  issue.created") {
+		t.Errorf("expected trigger line, got %q", tree.Message)
+	}
+	if !strings.Contains(tree.Message, "  ACTION  assign.issue") {
+		t.Errorf("expected indented action line, got %q", tree.Message)
+	}
+}
+
+func TestComponentTree_NestedChildren(t *testing.T) {
+	t.Parallel()
+	trigger := &api.RuleComponent{Component: "TRIGGER", Type: "issue.created"}
+	components := []api.RuleComponent{
+		{
+			Component: "CONDITION",
+			Type:      "jira.condition.container.block",
+			Children:  json.RawMessage(`[{"component":"CONDITION_BLOCK","type":"jira.condition.if.block","children":[{"component":"ACTION","type":"jira.issue.create"}]}]`),
+		},
+		{Component: "ACTION", Type: "assign.issue"},
+	}
+
+	rule := &api.AutomationRule{
+		UUID:       "uuid-nested",
+		Name:       "Nested",
+		State:      "ENABLED",
+		Trigger:    trigger,
+		Components: components,
+	}
+
+	model := AutomationPresenter{}.PresentGetDetail(rule, true)
+	tree := model.Sections[3].(*present.MessageSection)
+
+	if !strings.Contains(tree.Message, "TRIGGER  issue.created") {
+		t.Errorf("missing trigger, got %q", tree.Message)
+	}
+	if !strings.Contains(tree.Message, "  CONDITION  jira.condition.container.block") {
+		t.Errorf("missing condition, got %q", tree.Message)
+	}
+	if !strings.Contains(tree.Message, "    CONDITION_BLOCK  jira.condition.if.block") {
+		t.Errorf("missing nested condition block, got %q", tree.Message)
+	}
+	if !strings.Contains(tree.Message, "      ACTION  jira.issue.create") {
+		t.Errorf("missing deeply nested action, got %q", tree.Message)
+	}
+	if !strings.Contains(tree.Message, "  ACTION  assign.issue") {
+		t.Errorf("missing top-level action, got %q", tree.Message)
+	}
+}
+
+func TestComponentTree_TriggerDeduplication(t *testing.T) {
+	t.Parallel()
+	trigger := &api.RuleComponent{Component: "TRIGGER", Type: "issue.created"}
+	components := []api.RuleComponent{
+		{Component: "TRIGGER", Type: "issue.created"},
+		{Component: "ACTION", Type: "assign.issue"},
+	}
+
+	rule := &api.AutomationRule{
+		UUID:       "uuid-dedup",
+		Name:       "Dedup",
+		State:      "ENABLED",
+		Trigger:    trigger,
+		Components: components,
+	}
+
+	model := AutomationPresenter{}.PresentGetDetail(rule, true)
+	tree := model.Sections[3].(*present.MessageSection)
+
+	count := strings.Count(tree.Message, "TRIGGER  issue.created")
+	if count != 1 {
+		t.Errorf("expected 1 TRIGGER line (deduplication), got %d in %q", count, tree.Message)
 	}
 }
 
@@ -305,8 +375,8 @@ func TestAutomationPresenter_PresentGetDetailExtended(t *testing.T) {
 		Description: "Does stuff",
 		Labels:      []string{"onboarding"},
 		Tags:        []string{"auto-create"},
-		Created:     "2023-12-04T10:00:00.000+0000",
-		Updated:     "2026-03-15T14:30:00.000+0000",
+		Created:     &atime.AtlassianTime{Time: time.Date(2023, 12, 4, 10, 0, 0, 0, time.UTC)},
+		Updated:     &atime.AtlassianTime{Time: time.Date(2026, 3, 15, 14, 30, 0, 0, time.UTC)},
 		Projects: []api.RuleProject{
 			{ProjectKey: "MON"},
 			{ProjectKey: "ON"},

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/open-cli-collective/atlassian-go/atime"
 	"github.com/open-cli-collective/atlassian-go/present"
 
 	"github.com/open-cli-collective/jira-ticket-cli/api"
@@ -272,8 +273,8 @@ func (AutomationPresenter) PresentGetDetail(rule *api.AutomationRule, showCompon
 		sections = append(sections, msg(fmt.Sprintf("Description: %s", rule.Description)))
 	}
 
-	if showComponents && len(rule.Components) > 0 {
-		sections = append(sections, componentTable(rule.Components))
+	if showComponents && (rule.Trigger != nil || len(rule.Components) > 0) {
+		sections = append(sections, componentTree(rule.Trigger, rule.Components))
 	}
 
 	return &present.OutputModel{Sections: sections}
@@ -296,25 +297,44 @@ func (AutomationPresenter) PresentGetDetailExtended(rule *api.AutomationRule, sh
 	sections = append(sections, msg(fmt.Sprintf("Tags: %s", OrDash(strings.Join(rule.Tags, ", ")))))
 	sections = append(sections, msg(fmt.Sprintf("Author: %s", OrDash(authorName))))
 	sections = append(sections, msg(fmt.Sprintf("Scope: %s", automationScope(rule))))
-	sections = append(sections, msg(fmt.Sprintf("Created: %s   Updated: %s", OrDash(FormatTime(string(rule.Created))), OrDash(FormatTime(string(rule.Updated))))))
+	sections = append(sections, msg(fmt.Sprintf("Created: %s   Updated: %s", formatAtlassianTimeOrDash(rule.Created), formatAtlassianTimeOrDash(rule.Updated))))
 
-	if showComponents && len(rule.Components) > 0 {
-		sections = append(sections, componentTable(rule.Components))
+	if showComponents && (rule.Trigger != nil || len(rule.Components) > 0) {
+		sections = append(sections, componentTree(rule.Trigger, rule.Components))
 	}
 
 	return &present.OutputModel{Sections: sections}
 }
 
-func componentTable(components []api.RuleComponent) *present.TableSection {
-	rows := make([]present.Row, len(components))
-	for i, c := range components {
-		rows[i] = present.Row{
-			Cells: []string{fmt.Sprintf("%d", i+1), c.Component, c.Type},
-		}
+func componentTree(trigger *api.RuleComponent, components []api.RuleComponent) *present.MessageSection {
+	var lines []string
+	if trigger != nil {
+		renderComponent(&lines, trigger, 0)
 	}
-	return &present.TableSection{
-		Headers: []string{"#", "COMPONENT", "TYPE"},
-		Rows:    rows,
+	for i := range components {
+		c := &components[i]
+		if c.Component == "TRIGGER" {
+			if trigger == nil {
+				renderComponent(&lines, c, 0)
+			}
+			continue
+		}
+		renderComponent(&lines, c, 1)
+	}
+	return &present.MessageSection{
+		Message: strings.Join(lines, "\n"),
+		Stream:  present.StreamStdout,
+	}
+}
+
+func renderComponent(lines *[]string, c *api.RuleComponent, depth int) {
+	indent := strings.Repeat("  ", depth)
+	*lines = append(*lines, fmt.Sprintf("%s%s  %s", indent, c.Component, c.Type))
+	for _, cond := range c.DecodedConditions() {
+		renderComponent(lines, &cond, depth+1)
+	}
+	for _, child := range c.DecodedChildren() {
+		renderComponent(lines, &child, depth+1)
 	}
 }
 
@@ -384,4 +404,11 @@ func SummarizeComponents(components []api.RuleComponent) string {
 	}
 
 	return fmt.Sprintf("%d total — %s", len(components), strings.Join(parts, ", "))
+}
+
+func formatAtlassianTimeOrDash(t *atime.AtlassianTime) string {
+	if t == nil || t.IsZero() {
+		return "-"
+	}
+	return FormatDate(&t.Time)
 }

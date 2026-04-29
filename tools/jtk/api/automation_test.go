@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/open-cli-collective/atlassian-go/testutil"
 )
@@ -610,35 +611,7 @@ func TestListAutomationRulesPagination(t *testing.T) {
 	testutil.Equal(t, atomic.LoadInt32(&page), int32(2)) // Verify two pages were fetched
 }
 
-func TestTimestamp_UnmarshalJSON(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		input   string
-		want    Timestamp
-		wantErr bool
-	}{
-		{"string ISO", `"2023-12-04T10:00:00.000+0000"`, Timestamp("2023-12-04T10:00:00.000+0000"), false},
-		{"epoch millis", `1701680400000`, Timestamp("2023-12-04T09:00:00Z"), false},
-		{"null", `null`, Timestamp(""), false},
-		{"invalid", `true`, Timestamp(""), true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			var ts Timestamp
-			err := ts.UnmarshalJSON([]byte(tt.input))
-			if tt.wantErr {
-				testutil.Error(t, err)
-				return
-			}
-			testutil.RequireNoError(t, err)
-			testutil.Equal(t, string(ts), string(tt.want))
-		})
-	}
-}
-
-func TestGetAutomationRule_EnvelopeWithNumericTimestamp(t *testing.T) {
+func TestGetAutomationRule_EnvelopeWithFractionalTimestamp(t *testing.T) {
 	t.Parallel()
 	client, server := newTestClientWithServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/_edge/tenant_info" {
@@ -647,17 +620,23 @@ func TestGetAutomationRule_EnvelopeWithNumericTimestamp(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"rule":{"uuid":"uuid-99","name":"Numeric TS","state":"ENABLED","created":1701680400000,"updated":1701766800000,"components":[{"component":"ACTION","type":"assign"}]}}`))
+		_, _ = w.Write([]byte(`{"rule":{"uuid":"uuid-99","name":"Fractional TS","state":"ENABLED","created":1701482354.625000000,"updated":1701568754.000000000,"components":[{"component":"ACTION","type":"assign"}]}}`))
 	}))
 	defer server.Close()
 
 	rule, err := client.GetAutomationRule(context.Background(), "uuid-99")
 	testutil.RequireNoError(t, err)
 	testutil.Equal(t, rule.UUID, "uuid-99")
-	testutil.Equal(t, rule.Name, "Numeric TS")
+	testutil.Equal(t, rule.Name, "Fractional TS")
 	testutil.Equal(t, rule.State, "ENABLED")
-	testutil.Equal(t, string(rule.Created), "2023-12-04T09:00:00Z")
-	testutil.Equal(t, string(rule.Updated), "2023-12-05T09:00:00Z")
+	if rule.Created == nil {
+		t.Fatal("Created should not be nil")
+	}
+	testutil.Equal(t, rule.Created.UTC().Format(time.RFC3339Nano), "2023-12-02T01:59:14.625Z")
+	if rule.Updated == nil {
+		t.Fatal("Updated should not be nil")
+	}
+	testutil.Equal(t, rule.Updated.UTC().Format(time.RFC3339Nano), "2023-12-03T01:59:14Z")
 	testutil.Len(t, rule.Components, 1)
 }
 
@@ -678,7 +657,10 @@ func TestListAutomationRules_NumericTimestamp(t *testing.T) {
 	testutil.RequireNoError(t, err)
 	testutil.Len(t, rules, 1)
 	testutil.Equal(t, rules[0].Name, "Rule One")
-	testutil.Equal(t, string(rules[0].Created), "2023-12-04T09:00:00Z")
+	if rules[0].Created == nil {
+		t.Fatal("Created should not be nil")
+	}
+	testutil.Equal(t, rules[0].Created.UTC().Format(time.RFC3339), "2023-12-04T09:00:00Z")
 }
 
 func TestGetAutomationRule_LegacyWithNumericTimestamp(t *testing.T) {
@@ -698,7 +680,10 @@ func TestGetAutomationRule_LegacyWithNumericTimestamp(t *testing.T) {
 	testutil.RequireNoError(t, err)
 	testutil.Equal(t, rule.Name, "Legacy TS")
 	testutil.Equal(t, rule.State, "ENABLED")
-	testutil.Equal(t, string(rule.Created), "2023-12-04T09:00:00Z")
+	if rule.Created == nil {
+		t.Fatal("Created should not be nil")
+	}
+	testutil.Equal(t, rule.Created.UTC().Format(time.RFC3339), "2023-12-04T09:00:00Z")
 }
 
 func TestGetAutomationRule_EnvelopeWithNullRule(t *testing.T) {
@@ -755,14 +740,14 @@ func TestGetAutomationRule_EnvelopeWithInvalidRule(t *testing.T) {
 	testutil.Contains(t, err.Error(), "parsing automation rule")
 }
 
-func TestTimestamp_OmitEmpty(t *testing.T) {
+func TestAtlassianTime_OmitEmpty(t *testing.T) {
 	t.Parallel()
 	rule := AutomationRuleSummary{UUID: "uuid-1", Name: "Test", State: "ENABLED"}
 	data, err := json.Marshal(rule)
 	testutil.RequireNoError(t, err)
 	s := string(data)
 	if strings.Contains(s, `"created"`) {
-		t.Errorf("empty Timestamp should be omitted, got: %s", s)
+		t.Errorf("nil *AtlassianTime should be omitted, got: %s", s)
 	}
 }
 
@@ -789,4 +774,39 @@ func TestDeleteAutomationRule(t *testing.T) {
 	testutil.RequireNoError(t, err)
 	testutil.Equal(t, receivedMethod, http.MethodDelete)
 	testutil.Contains(t, receivedPath, "/rule/rule-uuid-123")
+}
+
+func TestRuleComponent_DecodedChildren(t *testing.T) {
+	t.Parallel()
+	c := RuleComponent{
+		Component: "CONDITION",
+		Type:      "container",
+		Children:  json.RawMessage(`[{"component":"ACTION","type":"create"}]`),
+	}
+	children := c.DecodedChildren()
+	testutil.Len(t, children, 1)
+	testutil.Equal(t, children[0].Component, "ACTION")
+	testutil.Equal(t, children[0].Type, "create")
+}
+
+func TestRuleComponent_DecodedConditions(t *testing.T) {
+	t.Parallel()
+	c := RuleComponent{
+		Component:  "TRIGGER",
+		Type:       "issue.created",
+		Conditions: json.RawMessage(`[{"component":"CONDITION","type":"jql"}]`),
+	}
+	conditions := c.DecodedConditions()
+	testutil.Len(t, conditions, 1)
+	testutil.Equal(t, conditions[0].Component, "CONDITION")
+}
+
+func TestRuleComponent_DecodedChildren_NilAndMalformed(t *testing.T) {
+	t.Parallel()
+	empty := RuleComponent{Component: "ACTION", Type: "assign"}
+	testutil.Len(t, empty.DecodedChildren(), 0)
+	testutil.Len(t, empty.DecodedConditions(), 0)
+
+	malformed := RuleComponent{Children: json.RawMessage(`{invalid`)}
+	testutil.Len(t, malformed.DecodedChildren(), 0)
 }
