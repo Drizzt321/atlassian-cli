@@ -1,6 +1,6 @@
 # jtk CLI Reference
 
-> **Covers:** jtk v1.0.75
+> **Covers:** jtk v1.0.84
 
 Reference for the `jtk` command line tool from [open-cli-collective/atlassian-cli](https://github.com/open-cli-collective/atlassian-cli).
 
@@ -225,7 +225,8 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 - Data goes to stdout (pipeable)
 - Diagnostics/logs go to stderr
 - **Pagination continuation notices (`More results available ...`) go to STDOUT, not stderr** — this is intentional per `jtk`'s output contract, and applies even with `--id`. When using `--id` in command substitution or piping to a tool that reads line-by-line, size `--max` to match your expectation, or post-filter with `grep -oE '[A-Z]+-[0-9]+' | head -1` (or equivalent) to isolate just the identifier from any trailing notice.
-- Use `--id` global flag for just the primary identifier (useful when piping to another command; note the pagination caveat above)
+- Use `--id` global flag for just the primary identifier — works on both reads and mutations (useful when piping to another command; note the pagination caveat above)
+- **Mutation output:** non-destructive mutations (create, update, assign, transition, add) re-fetch the entity after writing and show the same detail block as the corresponding `get` command. Destructive mutations (delete, remove) emit a confirmation line only. `--id` on any mutation emits just the primary identifier (issue key, comment ID, etc.)
 - Use `--fulltext` global flag to disable truncation of descriptions/comments. `--fulltext` is a no-op when the body field is not selected via `--fields`
 - Use `--fields` (per-command) to select specific columns in table/block output. Invalid field names error before making API calls
 - Use standard shell tools for filtering: `jtk issues list --project KEY | grep "Bug"`
@@ -234,7 +235,7 @@ Common transition names: "To Do", "In Progress", "In Review", "Done" (instance-d
 
 This reference covers `jtk`'s daily-use operator surface — issues, transitions, links, sprints, boards, comments, attachments, projects, users. It intentionally does **not** cover administrative surfaces, which are out of scope for the workflows in this skill:
 
-- `jtk fields` — custom field management (create, delete, restore, contexts, options)
+- `jtk fields` — custom field management (create, delete, restore, show, contexts, options). Note: `--custom` was renamed to `--custom-fields` on `fields list` in v1.0.84
 - `jtk dashboards` — dashboard and gadget management
 - `jtk automation` — automation rule management (list, export, create, update, enable/disable)
 

@@ -158,6 +158,6 @@ Common transition names (instance-dependent — always `list` first):
 
 After any action:
 1. Confirm success with the issue key
-2. For creates: show the new issue key. **Note: the `--id` global flag is currently ignored by `jtk issues create` — the command emits its full `Created issue PROJ-123 (https://...)` message regardless. For scripting, parse the key out of the decorated output (e.g., `grep -oE '[A-Z]+-[0-9]+' | head -1`) rather than relying on `--id`.**
+2. For creates and updates: the command re-fetches the entity and shows the same detail block as `jtk issues get` (post-state output). If the re-fetch fails, a simple confirmation message is shown instead. Use `--id` to emit just the issue key.
 3. For transitions: show old status → new status
 4. For assignments: confirm assignee display name
